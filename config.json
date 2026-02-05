@@ -1,0 +1,59 @@
+{
+    "gateway": {
+        "port": 18789,
+        "host": "localhost",
+        "auth": {
+            "token": "your-secure-gateway-token"
+        }
+    },
+    "agents": {
+        "default": "kiro",
+        "kiro": {
+            "provider": "kiro",
+            "model": "claude-sonnet-4-5",
+            "apiKey": "my-super-secret-password-123",
+            "baseUrl": "http://localhost:8000/v1"
+        },
+        "claude": {
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-5-20250514",
+            "apiKey": "your-anthropic-api-key"
+        },
+        "gpt": {
+            "provider": "openai",
+            "model": "gpt-4o",
+            "apiKey": "your-openai-api-key"
+        }
+    },
+    "channels": {
+        "telegram": {
+            "enabled": true,
+            "token": "8143989850:AAFEyiQ2Lw_QdAn0FY0pJafb5glHhrRMKmA"
+        },
+        "discord": {
+            "enabled": false,
+            "token": ""
+        },
+        "whatsapp": {
+            "enabled": false,
+            "token": ""
+        }
+    },
+    "memory": {
+        "backend": "json",
+        "maxConversationHistory": 50
+    },
+    "skills": {
+        "enabled": []
+    },
+    "groq": {
+        "apiKey": "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",
+        "whisperModel": "whisper-large-v3-turbo"
+    },
+    "mcp": {
+        "enabled": true,
+        "configPath": "~/.atlas/mcp.json"
+    }
+}
+
+

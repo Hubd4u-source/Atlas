@@ -1,0 +1,38 @@
+{
+    "name": "atlas",
+    "version": "0.1.0",
+    "description": "Self-hosted personal AI assistant with multi-channel communication",
+    "private": true,
+    "type": "module",
+    "workspaces": [
+        "packages/*",
+        "apps/*"
+    ],
+    "scripts": {
+        "build": "npm run build --workspaces --if-present",
+        "test": "npm run test --workspaces --if-present",
+        "start": "npm run start --workspace=@atlas/gateway",
+        "dev": "npm run dev --workspace=@atlas/gateway",
+        "cli": "npm run cli --workspace=@atlas/cli"
+    },
+    "keywords": [
+        "ai",
+        "assistant",
+        "self-hosted",
+        "telegram",
+        "discord",
+        "whatsapp",
+        "claude",
+        "openai"
+    ],
+    "author": "",
+    "license": "MIT",
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "dependencies": {
+        "adm-zip": "^0.5.16",
+        "groq": "^5.7.0"
+    }
+}
+

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Atlas Settings</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://unpkg.com/lucide@latest"></script>
+  </head>
+  <body>
+    <div class="bg-noise"></div>
+    <div class="app-layout">
+      <nav class="sidebar">
+                <div class="brand">
+          <div class="logo-badge">AG</div>
+          <span class="brand-text">Atlas</span>
+        </div>
+        <div class="nav-group">
+          <a class="nav-item" href="./index.html" title="Dashboard"><i data-lucide="layout-dashboard"></i></a>
+          <a class="nav-item" href="./chat.html" title="Chat"><i data-lucide="message-square"></i></a>
+          <a class="nav-item" href="./tasks.html" title="Tasks"><i data-lucide="list-todo"></i></a>
+          <a class="nav-item" href="./memory.html" title="Memory"><i data-lucide="brain-circuit"></i></a>
+        </div>
+        <div class="nav-group bottom">
+          <a class="nav-item active" href="./settings.html" title="Settings"><i data-lucide="settings"></i></a>
+        </div>
+      </nav>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="breadcrumbs">
+            <span class="text-muted">Atlas</span>
+            <span class="separator">/</span>
+            <span class="text-primary">Settings</span>
+          </div>
+          <div class="status-indicator">
+            <span class="dot" id="connection-dot"></span>
+            <span id="connection-status">Disconnected</span>
+          </div>
+        </header>
+
+        <h2 class="page-title">Connection Settings</h2>
+        <div class="stack">
+          <section class="card">
+            <div class="card-header">
+              <h3>Gateway Link</h3>
+              <p>Update connection details or switch environments.</p>
+            </div>
+            <div class="card-body" data-connection-panel>
+              <div class="form-row">
+                <div class="field-group">
+                  <label>WebSocket URL</label>
+                  <div class="input-wrapper">
+                    <input id="gateway-url-settings" data-gateway-url type="text" placeholder="ws://localhost:18789" />
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label>Gateway Token</label>
+                  <div class="input-wrapper">
+                    <input id="gateway-token-settings" data-gateway-token type="password" placeholder="Paste token from config" />
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label>Chat ID</label>
+                  <div class="input-wrapper">
+                    <input id="chat-id-settings" data-chat-id type="text" placeholder="auto-generated" />
+                  </div>
+                </div>
+              </div>
+              <div class="actions">
+                <button class="btn primary" data-connect-btn>Connect</button>
+                <button class="btn ghost" data-disconnect-btn>Disconnect</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-header">
+              <h3>MCP Tools</h3>
+              <p>Manage Model Context Protocol servers and sync tools.</p>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="field-group">
+                  <label>MCP Config Path</label>
+                  <div class="input-wrapper">
+                    <input id="mcp-config-path" data-mcp-config type="text" placeholder="C:\\Users\\....atlas\\mcp.json" />
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label>Status</label>
+                  <div class="input-wrapper">
+                    <input data-mcp-status-message type="text" value="Waiting for gateway..." readonly />
+                  </div>
+                </div>
+              </div>
+              <div class="actions">
+                <button class="btn primary" data-mcp-reload>Reload MCP</button>
+                <button class="btn ghost" data-mcp-status>Refresh Status</button>
+              </div>
+
+              <div class="metrics-grid mcp-metrics">
+                <div class="metric-card">
+                  <span class="metric-label">SERVERS</span>
+                  <strong class="metric-value" data-mcp-servers-count>0</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label">TOOLS</span>
+                  <strong class="metric-value" data-mcp-tools-count>0</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label">LAST SYNC</span>
+                  <strong class="metric-value" data-mcp-last-refresh>--</strong>
+                </div>
+              </div>
+
+              <div class="mcp-server-list" data-mcp-server-list></div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="./dist/app.js"></script>
+    <script>
+      window.onload = () => window.lucide && window.lucide.createIcons();
+    </script>
+  </body>
+</html>
+
+
+
+

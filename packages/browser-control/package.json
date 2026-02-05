@@ -1,0 +1,23 @@
+{
+    "name": "@atlas/browser-control",
+    "version": "1.0.0",
+    "description": "Advanced browser control subsystem for Atlas",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "watch": "tsc -w"
+    },
+    "dependencies": {
+        "@atlas/core": "*",
+        "ws": "^8.18.0",
+        "playwright": "^1.49.1",
+        "chokidar": "^3.6.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.3.3",
+        "@types/node": "^20.11.0",
+        "@types/ws": "^8.5.10"
+    }
+}

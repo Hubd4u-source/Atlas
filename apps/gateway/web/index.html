@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Atlas Dashboard</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <!-- Preload Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Markdown Rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+</head>
+
+<body>
+  <div class="bg-noise"></div>
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="brand">
+        <div class="logo-badge">AG</div>
+        <span class="brand-text">Atlas</span>
+      </div>
+
+      <div class="nav-group">
+        <a href="#" class="nav-item active" title="Dashboard">
+          <i data-lucide="layout-dashboard"></i>
+        </a>
+        <a href="#" class="nav-item" title="Chat">
+          <i data-lucide="message-square"></i>
+        </a>
+        <a href="#" class="nav-item" title="Tasks">
+          <i data-lucide="list-todo"></i>
+        </a>
+        <a href="#" class="nav-item" title="Memory">
+          <i data-lucide="brain-circuit"></i>
+        </a>
+      </div>
+
+      <div class="nav-group bottom">
+        <a href="#" class="nav-item" title="Settings">
+          <i data-lucide="settings"></i>
+        </a>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="breadcrumbs">
+          <span class="text-muted">Atlas</span>
+          <span class="separator">/</span>
+          <span class="text-primary">Gateway Dashboard</span>
+        </div>
+        <div class="topbar-actions">
+          <div class="status-indicator">
+            <span class="dot" id="connection-dot"></span>
+            <span id="connection-status">Connecting...</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Dashboard View -->
+      <div id="view-dashboard" class="view active">
+        <!-- Dashboard Grid -->
+        <div class="dashboard-grid">
+          <!-- Column 1: Gateway Access & Stats -->
+          <div class="col-main">
+            <!-- Gateway Access Card -->
+            <section class="card gateway-card">
+              <div class="card-header">
+                <h3>Gateway Access</h3>
+                <p>Where the dashboard connects and how it authenticates.</p>
+              </div>
+              <div class="card-body" data-connection-panel>
+                <div class="form-row">
+                  <div class="field-group">
+                    <label>WebSocket URL</label>
+                    <div class="input-wrapper">
+                      <input type="text" id="gateway-url" data-gateway-url placeholder="ws://localhost:18789"
+                        value="ws://localhost:18789">
+                    </div>
+                  </div>
+                  <div class="field-group">
+                    <label>Gateway Token</label>
+                    <div class="input-wrapper">
+                      <input type="password" id="gateway-token" data-gateway-token placeholder="Enter token from config"
+                        value="your-secure-gateway-token">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="actions">
+                  <button id="connect-btn" class="btn primary" data-connect-btn>Connect</button>
+                  <button id="refresh-btn" class="btn ghost">Refresh</button>
+                </div>
+              </div>
+            </section>
+
+            <!-- Snapshot / Metrics Section -->
+            <section class="snapshot-section">
+              <div class="section-header">
+                <h3>Snapshot</h3>
+                <p>Latest gateway handshake information.</p>
+              </div>
+
+              <div class="metrics-grid">
+                <div class="metric-card">
+                  <span class="metric-label">STATUS</span>
+                  <strong class="metric-value text-success" id="metric-status">Connected</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label">UPTIME</span>
+                  <strong class="metric-value" id="metric-uptime">--</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label">LAST REFRESH</span>
+                  <strong class="metric-value" id="metric-refresh">Just now</strong>
+                </div>
+              </div>
+            </section>
+
+            <!-- Bottom Row: Instances & Sessions -->
+            <div class="info-row">
+              <div class="card metric-panel">
+                <span class="label">INSTANCES</span>
+                <strong class="value">1</strong>
+                <p class="desc">Presence beacons in the last 5 minutes.</p>
+              </div>
+              <div class="card metric-panel">
+                <span class="label">SESSIONS</span>
+                <strong class="value" id="metric-sessions">0</strong>
+                <p class="desc">Active conversation sessions.</p>
+              </div>
+              <div class="card metric-panel">
+                <span class="label">CRON</span>
+                <strong class="value text-success">Enabled</strong>
+                <p class="desc" id="metric-cron">Next wake: calculating...</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 2 (Right): Logs -->
+          <div class="col-side">
+            <section class="card logs-card" style="height: 100%;">
+              <div class="card-header">
+                <h3>System Logs</h3>
+              </div>
+              <div class="logs-container" id="logs-container">
+                <div class="log-entry"><span class="time">--:--</span> <span class="info">System initialized.</span>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat View -->
+      <div id="view-chat" class="view" style="display: none; height: 100%;">
+        <section class="card chat-card" style="height: 100%; display: flex; flex-direction: column;">
+          <div class="card-header">
+            <h3>Live Chat</h3>
+            <p>Direct interface with the Agent.</p>
+          </div>
+          <div class="card-body"
+            style="padding: 24px; flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="chat-search">
+              <div class="input-wrapper chat-search-row">
+                <i data-lucide="search" style="width: 18px; height: 18px; color: var(--text-secondary);"></i>
+                <input type="text" id="chat-search" placeholder="Search messages..." autocomplete="off">
+                <button id="chat-search-clear" class="btn ghost" type="button">Clear</button>
+              </div>
+              <label class="chat-search-toggle">
+                <input type="checkbox" id="chat-search-all" />
+                <span>Search all chats</span>
+              </label>
+            </div>
+            <div class="chat-window" id="chat-messages" style="flex: 1; overflow-y: auto;">
+              <!-- Messages will appear here -->
+              <div class="message agent">Welcome back to Atlas.</div>
+            </div>
+            <form class="chat-composer" id="chat-form">
+              <div class="input-wrapper" style="flex:1">
+                <input type="text" id="message-input" placeholder="Type a command..." autocomplete="off">
+              </div>
+              <button type="button" class="btn ghost voice-btn" data-voice-btn aria-pressed="false" title="Record voice">
+                <i data-lucide="mic"></i>
+              </button>
+              <button type="submit" class="btn primary">Send</button>
+            </form>
+          </div>
+        </section>
+      </div>
+
+      <!-- Tasks View -->
+      <div id="view-tasks" class="view" style="display: none; padding: 32px; height: 100%; overflow-y: auto;">
+        <section class="card">
+          <div class="card-header">
+            <h3>Active Tasks</h3>
+            <p>Queue of agent activities and reminders.</p>
+          </div>
+          <div class="card-body">
+            <div class="metrics-grid" style="margin-bottom: 24px;">
+              <div class="metric-card">
+                <span class="metric-label">PENDING</span>
+                <strong class="metric-value" id="tasks-count-pending">0</strong>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">IN PROGRESS</span>
+                <strong class="metric-value text-success" id="tasks-count-in-progress">0</strong>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">COMPLETED</span>
+                <strong class="metric-value" id="tasks-count-completed">0</strong>
+              </div>
+            </div>
+
+            <div class="list-card">
+              <div class="task-section">
+                <h4>In Progress</h4>
+                <div id="tasks-list-in-progress" class="task-list"></div>
+              </div>
+              <div class="task-section">
+                <h4>Queued</h4>
+                <div id="tasks-list-queued" class="task-list"></div>
+              </div>
+              <div class="task-section">
+                <h4>Retrying</h4>
+                <div id="tasks-list-retrying" class="task-list"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Memory View -->
+      <div id="view-memory" class="view" style="display: none; padding: 32px; height: 100%; overflow-y: auto;">
+        <section class="card">
+          <div class="card-header">
+            <h3>Semantic Memory</h3>
+            <p>Searchable database of facts and past interactions.</p>
+          </div>
+          <div class="card-body">
+            <div class="form-row">
+              <div class="field-group">
+                <div class="input-wrapper" style="display: flex; align-items: center; gap: 12px;">
+                  <i data-lucide="search" style="width: 18px; height: 18px; color: var(--text-secondary);"></i>
+                  <input type="text" placeholder="Search memory bank...">
+                </div>
+              </div>
+            </div>
+
+            <div class="stack">
+              <div class="metric-panel card"
+                style="flex-direction: row; justify-content: space-between; align-items: center; padding: 16px;">
+                <div>
+                  <strong style="display: block; font-size: 14px;">User Preference: Dark Mode</strong>
+                  <span style="font-size: 12px; color: var(--text-secondary);">Recalled from Session #8392</span>
+                </div>
+                <span class="status-indicator">Verified</span>
+              </div>
+              <div class="metric-panel card"
+                style="flex-direction: row; justify-content: space-between; align-items: center; padding: 16px;">
+                <div>
+                  <strong style="display: block; font-size: 14px;">Project: Gateway Dashboard</strong>
+                  <span style="font-size: 12px; color: var(--text-secondary);">Active Context</span>
+                </div>
+                <span class="status-indicator">Active</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Settings View -->
+      <div id="view-settings" class="view" style="display: none; padding: 32px; height: 100%; overflow-y: auto;">
+        <div class="stack">
+          <section class="card">
+            <div class="card-header">
+              <h3>Gateway Connection</h3>
+              <p>Manage WebSocket access and session settings.</p>
+            </div>
+            <div class="card-body" data-connection-panel>
+              <div class="form-row">
+                <div class="field-group">
+                  <label>WebSocket URL</label>
+                  <div class="input-wrapper">
+                    <input id="gateway-url-settings" data-gateway-url type="text" placeholder="ws://localhost:18789" />
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label>Gateway Token</label>
+                  <div class="input-wrapper">
+                    <input id="gateway-token-settings" data-gateway-token type="password" placeholder="Paste token from config" />
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label>Chat ID</label>
+                  <div class="input-wrapper">
+                    <input id="chat-id-settings" data-chat-id type="text" placeholder="auto-generated" />
+                  </div>
+                </div>
+              </div>
+              <div class="actions">
+                <button class="btn primary" data-connect-btn>Connect</button>
+                <button class="btn ghost" data-disconnect-btn>Disconnect</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-header">
+              <h3>MCP Tools</h3>
+              <p>Connect Model Context Protocol servers and refresh tool availability.</p>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="field-group">
+                  <label>MCP Config Path</label>
+                  <div class="input-wrapper">
+                    <input id="mcp-config-path" data-mcp-config type="text" placeholder="C:\\Users\\....atlas\\mcp.json" />
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label>Status</label>
+                  <div class="input-wrapper">
+                    <input data-mcp-status-message type="text" value="Waiting for gateway..." readonly />
+                  </div>
+                </div>
+              </div>
+              <div class="actions">
+                <button class="btn primary" data-mcp-reload>Reload MCP</button>
+                <button class="btn ghost" data-mcp-status>Refresh Status</button>
+              </div>
+
+              <div class="metrics-grid mcp-metrics">
+                <div class="metric-card">
+                  <span class="metric-label">SERVERS</span>
+                  <strong class="metric-value" data-mcp-servers-count>0</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label">TOOLS</span>
+                  <strong class="metric-value" data-mcp-tools-count>0</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label">LAST SYNC</span>
+                  <strong class="metric-value" data-mcp-last-refresh>--</strong>
+                </div>
+              </div>
+
+              <div class="mcp-server-list" data-mcp-server-list></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- App Logic (Compiled TS) -->
+  <script type="module" src="./dist/app.js"></script>
+  <script>
+    // Initialize Lucide Icons
+    window.onload = () => {
+      if (window.lucide) {
+        window.lucide.createIcons();
+      }
+    };
+  </script>
+</body>
+
+</html>
+
+
+
