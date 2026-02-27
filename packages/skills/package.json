@@ -9,7 +9,9 @@
         "clean": "rimraf dist"
     },
     "dependencies": {
+        "@atlas/browser-control": "*",
         "@atlas/core": "^0.1.0",
+        "playwright": "^1.49.1",
         "puppeteer": "^24.36.1",
         "puppeteer-screen-recorder": "^3.0.6"
     },

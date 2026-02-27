@@ -96,18 +96,25 @@ const schedulerSkill: Skill = {
                     const timeString = new Date().toLocaleString();
                     const sysInfo = `OS: ${process.platform} | Free Mem: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB Used`;
 
-                    const message = `[SYSTEM INTERRUPT] ⏰ **SCHEDULED EVENT**
-📋 Task: ${task.description}
-📅 Time: ${timeString}
-💻 System: ${sysInfo}
-(Task ID: ${task.id})`;
+                    const message = `[Cron] Executed task: Skill: reminder\nTask: ${task.description}\nTime: ${timeString}\nSystem: ${sysInfo}\nTask ID: ${task.id}`;
 
-                    if (task.chatId && context.sendMessageTo) {
+                    if (task.channel && task.chatId && (context as any).sendMessageToChannel) {
+                        await (context as any).sendMessageToChannel(task.channel, task.chatId, message);
+                    } else if (task.chatId && context.sendMessageTo) {
                         await context.sendMessageTo(task.chatId, message);
                     } else if (context.sendMessage) {
                         await context.sendMessage(message);
                     } else {
                         console.log(message);
+                    }
+
+                    if (task.channel && task.chatId && (context as any).enqueueTask) {
+                        (context as any).enqueueTask({
+                            title: `Reminder: ${task.description}`,
+                            description: `Scheduled task triggered: ${task.description}`,
+                            channel: task.channel,
+                            chatId: task.chatId
+                        });
                     }
                 }
             }

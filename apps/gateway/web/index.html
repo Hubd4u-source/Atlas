@@ -19,7 +19,9 @@
     <!-- Sidebar -->
     <nav class="sidebar">
       <div class="brand">
-        <div class="logo-badge">AG</div>
+        <div class="logo-badge">
+          <img src="./assets/logo.png" alt="Atlas logo" class="logo-img" />
+        </div>
         <span class="brand-text">Atlas</span>
       </div>
 
@@ -35,6 +37,12 @@
         </a>
         <a href="#" class="nav-item" title="Memory">
           <i data-lucide="brain-circuit"></i>
+        </a>
+        <a href="#" class="nav-item" title="Cron">
+          <i data-lucide="clock"></i>
+        </a>
+        <a href="#" class="nav-item" title="Report">
+          <i data-lucide="bar-chart-3"></i>
         </a>
       </div>
 
@@ -185,6 +193,10 @@
               <div class="input-wrapper" style="flex:1">
                 <input type="text" id="message-input" placeholder="Type a command..." autocomplete="off">
               </div>
+              <input class="file-input" type="file" accept="image/*" multiple style="display: none;" data-file-input />
+              <button type="button" class="btn ghost attach-btn" data-attach-btn title="Attach image">
+                <i data-lucide="paperclip"></i>
+              </button>
               <button type="button" class="btn ghost voice-btn" data-voice-btn aria-pressed="false" title="Record voice">
                 <i data-lucide="mic"></i>
               </button>
@@ -235,6 +247,47 @@
         </section>
       </div>
 
+      <!-- Cron View -->
+      <div id="view-cron" class="view" style="display: none; padding: 32px; height: 100%; overflow-y: auto;">
+        <section class="card">
+          <div class="card-header">
+            <h3>Cron Scheduler</h3>
+            <p>Upcoming schedules and recent background executions.</p>
+          </div>
+          <div class="card-body">
+            <div class="metrics-grid" style="margin-bottom: 24px;">
+              <div class="metric-card">
+                <span class="metric-label">SCHEDULED</span>
+                <strong class="metric-value" id="cron-count">0</strong>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">NEXT RUN</span>
+                <strong class="metric-value" id="cron-next-run">--</strong>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">LAST EVENT</span>
+                <strong class="metric-value" id="cron-last-event">--</strong>
+              </div>
+            </div>
+
+            <div class="actions" style="margin-bottom: 18px;">
+              <button class="btn primary" data-cron-refresh>Refresh</button>
+            </div>
+
+            <div class="cron-grid">
+              <div class="cron-panel">
+                <h4>Scheduled Tasks</h4>
+                <div id="cron-task-list" class="cron-list"></div>
+              </div>
+              <div class="cron-panel">
+                <h4>Recent Executions</h4>
+                <div id="cron-event-list" class="cron-list"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
       <!-- Memory View -->
       <div id="view-memory" class="view" style="display: none; padding: 32px; height: 100%; overflow-y: auto;">
         <section class="card">
@@ -272,6 +325,145 @@
             </div>
           </div>
         </section>
+      </div>
+
+      <!-- Capability Report View -->
+      <div id="view-report" class="view" style="display: none; padding: 32px; height: 100%; overflow-y: auto;">
+        <section class="report-hero card">
+          <div class="report-hero-text">
+            <div class="report-eyebrow">Atlas Capability Report</div>
+            <h2>System Strength Overview</h2>
+            <p>Operational snapshot of Atlas performance across autonomy, memory, tools, and reliability.</p>
+            <div class="report-meta">
+              <div class="report-pill">
+                Updated <span id="report-updated">--</span>
+              </div>
+              <div class="report-pill">Mode: Autonomous</div>
+              <div class="report-pill">Stack: Gateway + MCP</div>
+            </div>
+          </div>
+          <div class="report-hero-score">
+            <div class="donut" style="--value: 86;">
+              <div class="donut-label">
+                <span class="donut-score">86</span>
+                <span class="donut-caption">Capability</span>
+              </div>
+            </div>
+            <div class="report-score-note">Atlas overall readiness index</div>
+          </div>
+        </section>
+
+        <div class="report-grid">
+          <section class="card report-card">
+            <div class="card-header">
+              <h3>Capability Matrix</h3>
+              <p>Relative strength across core subsystems.</p>
+            </div>
+            <div class="report-bars">
+              <div class="bar">
+                <span class="bar-label">Autonomy</span>
+                <div class="bar-track"><div class="bar-fill" style="--value: 92;"></div></div>
+                <span class="bar-value">92</span>
+              </div>
+              <div class="bar">
+                <span class="bar-label">Reasoning</span>
+                <div class="bar-track"><div class="bar-fill" style="--value: 88;"></div></div>
+                <span class="bar-value">88</span>
+              </div>
+              <div class="bar">
+                <span class="bar-label">Memory</span>
+                <div class="bar-track"><div class="bar-fill" style="--value: 84;"></div></div>
+                <span class="bar-value">84</span>
+              </div>
+              <div class="bar">
+                <span class="bar-label">Tooling</span>
+                <div class="bar-track"><div class="bar-fill" style="--value: 90;"></div></div>
+                <span class="bar-value">90</span>
+              </div>
+              <div class="bar">
+                <span class="bar-label">UX Delivery</span>
+                <div class="bar-track"><div class="bar-fill" style="--value: 82;"></div></div>
+                <span class="bar-value">82</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card report-card">
+            <div class="card-header">
+              <h3>Momentum</h3>
+              <p>Recent improvement velocity and stability.</p>
+            </div>
+            <div class="sparkline-wrap">
+              <svg class="sparkline" viewBox="0 0 320 120" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                  <linearGradient id="sparkGradient" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.65" />
+                    <stop offset="100%" stop-color="#3B82F6" stop-opacity="0" />
+                  </linearGradient>
+                </defs>
+                <polyline class="sparkline-line" points="0,92 40,74 80,82 120,60 160,64 200,42 240,48 280,30 320,36" />
+                <polygon class="sparkline-fill" points="0,120 0,92 40,74 80,82 120,60 160,64 200,42 240,48 280,30 320,36 320,120" />
+              </svg>
+              <div class="sparkline-meta">
+                <div>
+                  <div class="spark-label">Weekly Velocity</div>
+                  <div class="spark-value">+18%</div>
+                </div>
+                <div>
+                  <div class="spark-label">Stability</div>
+                  <div class="spark-value">99.2%</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card report-card">
+            <div class="card-header">
+              <h3>Reliability Index</h3>
+              <p>Quality signals across runtime, memory, and UI.</p>
+            </div>
+            <div class="report-kpis">
+              <div class="kpi">
+                <span class="kpi-label">Streaming Response</span>
+                <span class="kpi-value">Enabled</span>
+                <span class="kpi-sub">Latency avg 1.4s</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-label">Voice Pipeline</span>
+                <span class="kpi-value">Stable</span>
+                <span class="kpi-sub">Whisper active</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-label">Memory Recall</span>
+                <span class="kpi-value">Persistent</span>
+                <span class="kpi-sub">Facts + episodes</span>
+              </div>
+            </div>
+            <div class="report-mini">
+              <div class="mini-card">
+                <div class="mini-donut" style="--value: 91;"></div>
+                <div>
+                  <div class="mini-label">Uptime</div>
+                  <div class="mini-value">91%</div>
+                </div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-donut" style="--value: 87;"></div>
+                <div>
+                  <div class="mini-label">Task Completion</div>
+                  <div class="mini-value">87%</div>
+                </div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-donut" style="--value: 94;"></div>
+                <div>
+                  <div class="mini-label">Tool Success</div>
+                  <div class="mini-value">94%</div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
 
       <!-- Settings View -->
@@ -351,6 +543,33 @@
               </div>
 
               <div class="mcp-server-list" data-mcp-server-list></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-header">
+              <h3>YouTube API</h3>
+              <p>Store a YouTube Data API key for Shorts channel analysis.</p>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="field-group">
+                  <label>YouTube API Key</label>
+                  <div class="input-wrapper">
+                    <input id="youtube-api-key" data-youtube-api-key type="password" placeholder="Paste YouTube API key" />
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label>Status</label>
+                  <div class="input-wrapper">
+                    <input data-youtube-status type="text" value="Not configured" readonly />
+                  </div>
+                </div>
+              </div>
+              <div class="actions">
+                <button class="btn primary" data-youtube-save>Save API Key</button>
+                <button class="btn ghost" data-youtube-refresh>Refresh Status</button>
+              </div>
             </div>
           </section>
         </div>

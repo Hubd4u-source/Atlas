@@ -193,7 +193,7 @@ export interface AppConfig {
         profiles?: Record<string, {
             cdpPort?: number;
             cdpUrl?: string;
-            driver?: 'openclaw' | 'extension';
+            driver?: 'openclaw' | 'extension' | 'playwright';
             color?: string;
         }>;
     };
@@ -201,6 +201,10 @@ export interface AppConfig {
     mcp?: {
         enabled?: boolean;
         configPath?: string;
+    };
+    /** YouTube Data API configuration */
+    youtube?: {
+        apiKey?: string;
     };
 }
 

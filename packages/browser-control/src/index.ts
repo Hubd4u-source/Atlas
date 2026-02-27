@@ -14,3 +14,4 @@ export * from "./pw-role-snapshot.js";
 export * from "./pw-tools-core.shared.js";
 export * from "./interactions.js";
 export * from "./config-manager.js";
+export * from "./action-recorder.js";

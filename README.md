@@ -14,7 +14,7 @@ A self-hosted personal AI assistant with multi-channel communication, persistent
 
 ```bash
 # Clone and install
-git clone https://github.com/your-username/atlas.git
+git clone https://github.com/Hubd4u-source/Atlas.git
 cd atlas
 npm install
 

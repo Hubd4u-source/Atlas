@@ -1,0 +1,118 @@
+{
+  "fetched_at": "2026-02-05T12:00:00Z",
+  "channel": {
+    "id": "UCATLASTEST123",
+    "title": "Atlas Tech Shorts",
+    "description": "Bite-sized software engineering tips, AI tooling workflows, automation demos, and productivity hacks for developers.",
+    "customUrl": "@atlastech",
+    "publishedAt": "2023-01-01T00:00:00Z",
+    "country": "US",
+    "thumbnails": {},
+    "keywords": "ai,automation,shorts,devtools,productivity,engineering",
+    "statistics": {
+      "viewCount": "123456",
+      "subscriberCount": "1234",
+      "videoCount": "6"
+    },
+    "topicDetails": {
+      "topicCategories": [
+        "https://en.wikipedia.org/wiki/Technology",
+        "https://en.wikipedia.org/wiki/Software"
+      ]
+    },
+    "uploadsPlaylist": "UUATLASTEST123"
+  },
+  "video_count": 6,
+  "videos": [
+    {
+      "id": "vid001",
+      "title": "5 Git tricks in 45 seconds",
+      "description": "Fast Git tips for clean history.",
+      "publishedAt": "2025-11-01T12:00:00Z",
+      "tags": ["git", "tips", "dev"],
+      "categoryId": "28",
+      "duration": "PT45S",
+      "viewCount": "12000",
+      "likeCount": "900",
+      "commentCount": "55",
+      "thumbnails": {},
+      "channelId": "UCATLASTEST123",
+      "channelTitle": "Atlas Tech Shorts"
+    },
+    {
+      "id": "vid002",
+      "title": "AI code review in 60 seconds",
+      "description": "How to speed up reviews with AI.",
+      "publishedAt": "2025-11-10T12:00:00Z",
+      "tags": ["ai", "code", "review"],
+      "categoryId": "28",
+      "duration": "PT60S",
+      "viewCount": "18000",
+      "likeCount": "1400",
+      "commentCount": "90",
+      "thumbnails": {},
+      "channelId": "UCATLASTEST123",
+      "channelTitle": "Atlas Tech Shorts"
+    },
+    {
+      "id": "vid003",
+      "title": "Automate reports with Python",
+      "description": "A quick automation workflow demo.",
+      "publishedAt": "2025-11-18T12:00:00Z",
+      "tags": ["python", "automation"],
+      "categoryId": "28",
+      "duration": "PT52S",
+      "viewCount": "15000",
+      "likeCount": "1100",
+      "commentCount": "70",
+      "thumbnails": {},
+      "channelId": "UCATLASTEST123",
+      "channelTitle": "Atlas Tech Shorts"
+    },
+    {
+      "id": "vid004",
+      "title": "Prompt engineering for devs",
+      "description": "Prompts that improve tool output.",
+      "publishedAt": "2025-11-25T12:00:00Z",
+      "tags": ["prompt", "ai", "devtools"],
+      "categoryId": "28",
+      "duration": "PT58S",
+      "viewCount": "21000",
+      "likeCount": "1600",
+      "commentCount": "120",
+      "thumbnails": {},
+      "channelId": "UCATLASTEST123",
+      "channelTitle": "Atlas Tech Shorts"
+    },
+    {
+      "id": "vid005",
+      "title": "Ship faster with CI/CD",
+      "description": "Quick CI/CD checklist.",
+      "publishedAt": "2025-12-02T12:00:00Z",
+      "tags": ["cicd", "devops"],
+      "categoryId": "28",
+      "duration": "PT50S",
+      "viewCount": "19000",
+      "likeCount": "1500",
+      "commentCount": "95",
+      "thumbnails": {},
+      "channelId": "UCATLASTEST123",
+      "channelTitle": "Atlas Tech Shorts"
+    },
+    {
+      "id": "vid006",
+      "title": "Debugging in production",
+      "description": "On-call survival tips.",
+      "publishedAt": "2025-12-10T12:00:00Z",
+      "tags": ["debugging", "production"],
+      "categoryId": "28",
+      "duration": "PT55S",
+      "viewCount": "17000",
+      "likeCount": "1300",
+      "commentCount": "85",
+      "thumbnails": {},
+      "channelId": "UCATLASTEST123",
+      "channelTitle": "Atlas Tech Shorts"
+    }
+  ]
+}

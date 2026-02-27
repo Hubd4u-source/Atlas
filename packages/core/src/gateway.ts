@@ -35,6 +35,18 @@ interface Client {
     authenticated: boolean;
 }
 
+type ApiRouteHandler = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    params: { path: string; body?: unknown; query: Record<string, string> }
+) => Promise<void>;
+
+interface ApiRoute {
+    method: string;        // GET, POST, DELETE
+    pattern: string;       // e.g. /api/cron/jobs or /api/cron/jobs/:id
+    handler: ApiRouteHandler;
+}
+
 export class Gateway extends EventEmitter<GatewayEvents> {
     private wss: WebSocketServer | null = null;
     private clients: Map<string, Client> = new Map();
@@ -43,6 +55,7 @@ export class Gateway extends EventEmitter<GatewayEvents> {
     private config: GatewayConfig;
     private staticDir?: string;
     private staticRoutes: Record<string, string>;
+    private apiRoutes: ApiRoute[] = [];
 
     constructor(
         config: GatewayConfig,
@@ -58,12 +71,64 @@ export class Gateway extends EventEmitter<GatewayEvents> {
     }
 
     /**
+     * Register an API route on the gateway HTTP server
+     */
+    registerApiRoute(method: string, pattern: string, handler: ApiRouteHandler): void {
+        this.apiRoutes.push({ method: method.toUpperCase(), pattern, handler });
+        console.log(`🔌 [API] Registered: ${method.toUpperCase()} ${pattern}`);
+    }
+
+    /**
+     * Match a URL against registered API routes
+     */
+    private matchApiRoute(method: string, urlPath: string): { route: ApiRoute; params: Record<string, string> } | null {
+        for (const route of this.apiRoutes) {
+            if (route.method !== method.toUpperCase()) continue;
+            // Simple pattern matching with :param support
+            const patternParts = route.pattern.split('/');
+            const urlParts = urlPath.split('/');
+            if (patternParts.length !== urlParts.length) continue;
+            const params: Record<string, string> = {};
+            let match = true;
+            for (let i = 0; i < patternParts.length; i++) {
+                if (patternParts[i].startsWith(':')) {
+                    params[patternParts[i].slice(1)] = urlParts[i];
+                } else if (patternParts[i] !== urlParts[i]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return { route, params };
+        }
+        return null;
+    }
+
+    /**
+     * Parse JSON body from request
+     */
+    private parseBody(req: http.IncomingMessage): Promise<unknown> {
+        return new Promise((resolve) => {
+            const chunks: Buffer[] = [];
+            req.on('data', (chunk: Buffer) => chunks.push(chunk));
+            req.on('end', () => {
+                if (chunks.length === 0) { resolve(undefined); return; }
+                try {
+                    resolve(JSON.parse(Buffer.concat(chunks).toString()));
+                } catch {
+                    resolve(undefined);
+                }
+            });
+            req.on('error', () => resolve(undefined));
+        });
+    }
+
+    /**
      * Start the WebSocket server
      */
     async start(): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                const server = http.createServer((req, res) => {
+                const server = http.createServer(async (req, res) => {
                     const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
 
                     const contentTypeFor = (filePath: string) => {
@@ -97,6 +162,47 @@ export class Gateway extends EventEmitter<GatewayEvents> {
                         return true;
                     };
 
+                    // ── API Routes (check before static files) ────────────────
+                    const method = (req.method || 'GET').toUpperCase();
+                    const matched = this.matchApiRoute(method, urlPath);
+                    if (matched) {
+                        res.setHeader('Content-Type', 'application/json');
+                        res.setHeader('Access-Control-Allow-Origin', '*');
+                        try {
+                            const body = (method === 'POST' || method === 'PUT' || method === 'DELETE')
+                                ? await this.parseBody(req)
+                                : undefined;
+                            const queryStr = (req.url || '').split('?')[1] || '';
+                            const query: Record<string, string> = {};
+                            for (const pair of queryStr.split('&')) {
+                                const [k, v] = pair.split('=');
+                                if (k) query[decodeURIComponent(k)] = decodeURIComponent(v || '');
+                            }
+                            await matched.route.handler(req, res, {
+                                path: urlPath,
+                                body,
+                                query: { ...query, ...matched.params },
+                            });
+                        } catch (err) {
+                            const message = err instanceof Error ? err.message : String(err);
+                            res.writeHead(500);
+                            res.end(JSON.stringify({ error: message }));
+                        }
+                        return;
+                    }
+
+                    // CORS preflight
+                    if (method === 'OPTIONS') {
+                        res.writeHead(204, {
+                            'Access-Control-Allow-Origin': '*',
+                            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+                        });
+                        res.end();
+                        return;
+                    }
+
+                    // ── Static Routes ─────────────────────────────────────────
                     if (req.method === 'GET' && Object.keys(this.staticRoutes).length > 0) {
                         for (const [prefixRaw, dir] of Object.entries(this.staticRoutes)) {
                             const prefix = prefixRaw.startsWith('/') ? prefixRaw : `/${prefixRaw}`;
@@ -129,7 +235,9 @@ export class Gateway extends EventEmitter<GatewayEvents> {
 
                     if (req.method === 'GET' && this.staticDir) {
                         const safePath = urlPath.replace(/\.\./g, '').replace(/\/+$/, '') || '/';
-                        const target = safePath === '/' ? '/index.html' : safePath;
+                        const target = safePath === '/'
+                            ? 'index.html'
+                            : safePath.replace(/^\/+/, '');
                         const filePath = path.join(this.staticDir, target);
 
                         if (tryServeFile(filePath)) {

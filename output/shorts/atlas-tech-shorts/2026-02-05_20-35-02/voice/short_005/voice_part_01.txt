@@ -1,0 +1,1 @@
+Here is a rapid breakdown of code you can use today. First, identify the core step that saves the most time. Second, automate it with a repeatable template or script. Third, verify the output with a quick sanity check. Finally, document the workflow so your team can reuse it. Follow Atlas for more developer workflow boosts.

@@ -1,0 +1,70 @@
+{
+  "channel": {
+    "title": "Atlas Tech Shorts",
+    "id": "UCATLASTEST123",
+    "handle": "@atlastech"
+  },
+  "timestamp": "2026-02-05_20-35-02",
+  "shorts_count": 5,
+  "shorts": [
+    {
+      "id": "short_001",
+      "title": "Automation workflow boost",
+      "script_path": "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\scripts\\short_001.md",
+      "prompt_path": "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\prompts\\short_001_veo.txt",
+      "voice_chunks": [
+        "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\voice\\short_001\\voice_part_01.txt"
+      ],
+      "audio_generated": false
+    },
+    {
+      "id": "short_002",
+      "title": "Engineering workflow boost",
+      "script_path": "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\scripts\\short_002.md",
+      "prompt_path": "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\prompts\\short_002_veo.txt",
+      "voice_chunks": [
+        "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\voice\\short_002\\voice_part_01.txt"
+      ],
+      "audio_generated": false
+    },
+    {
+      "id": "short_003",
+      "title": "Git workflow boost",
+      "script_path": "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\scripts\\short_003.md",
+      "prompt_path": "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\prompts\\short_003_veo.txt",
+      "voice_chunks": [
+        "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\voice\\short_003\\voice_part_01.txt"
+      ],
+      "audio_generated": false
+    },
+    {
+      "id": "short_004",
+      "title": "Bite workflow boost",
+      "script_path": "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\scripts\\short_004.md",
+      "prompt_path": "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\prompts\\short_004_veo.txt",
+      "voice_chunks": [
+        "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\voice\\short_004\\voice_part_01.txt"
+      ],
+      "audio_generated": false
+    },
+    {
+      "id": "short_005",
+      "title": "Code workflow boost",
+      "script_path": "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\scripts\\short_005.md",
+      "prompt_path": "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\prompts\\short_005_veo.txt",
+      "voice_chunks": [
+        "D:\\Projects\\AGI\\atlas\\output\\shorts\\atlas-tech-shorts\\2026-02-05_20-35-02\\voice\\short_005\\voice_part_01.txt"
+      ],
+      "audio_generated": false
+    }
+  ],
+  "voice_settings": {
+    "chunk_words": 120,
+    "voice_id": "voice-107",
+    "api": "voice-tool"
+  },
+  "status": "dry_run",
+  "performance_notes": "",
+  "iterations": [],
+  "publish_schedule": []
+}

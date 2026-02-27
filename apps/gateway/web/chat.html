@@ -14,7 +14,9 @@
     <div class="app-layout">
       <nav class="sidebar">
         <div class="brand">
-          <div class="logo-badge">AG</div>
+          <div class="logo-badge">
+            <img src="./assets/logo.png" alt="Atlas logo" class="logo-img" />
+          </div>
           <span class="brand-text">Atlas</span>
         </div>
         <div class="nav-group">
@@ -63,6 +65,10 @@
               <div class="input-wrapper" style="flex: 1;">
                 <input id="message-input" type="text" placeholder="Ask the agent anything..." autocomplete="off" />
               </div>
+              <input class="file-input" type="file" accept="image/*" multiple style="display: none;" data-file-input />
+              <button class="btn ghost attach-btn" type="button" data-attach-btn title="Attach image">
+                <i data-lucide="paperclip"></i>
+              </button>
               <button class="btn ghost voice-btn" type="button" data-voice-btn aria-pressed="false" title="Record voice">
                 <i data-lucide="mic"></i>
               </button>

@@ -57,12 +57,16 @@ class NavigationManager {
         const chat = document.getElementById('view-chat');
         const tasks = document.getElementById('view-tasks');
         const memory = document.getElementById('view-memory');
+        const cron = document.getElementById('view-cron');
+        const report = document.getElementById('view-report');
         const settings = document.getElementById('view-settings');
 
         if (dashboard) this.views.set('Dashboard', dashboard);
         if (chat) this.views.set('Chat', chat);
         if (tasks) this.views.set('Tasks', tasks);
         if (memory) this.views.set('Memory', memory);
+        if (cron) this.views.set('Cron', cron);
+        if (report) this.views.set('Report', report);
         if (settings) this.views.set('Settings', settings);
 
         this.bindEvents();
@@ -122,7 +126,12 @@ class GatewayManager {
         token: 'your-secure-gateway-token'
     };
 
-    constructor(private ui: UIManager, private chat: ChatManager, private tasks?: TasksManager) { }
+    constructor(
+        private ui: UIManager,
+        private chat: ChatManager,
+        private tasks?: TasksManager,
+        private cron?: CronPanel
+    ) { }
 
     public connect(url?: string, token?: string) {
         if (this.socket) {
@@ -144,6 +153,7 @@ class GatewayManager {
                 this.ui.updateStatus('Connected', true);
                 this.ui.log('Gateway connection established.', 'success');
                 this.tasks?.requestUpdate();
+                this.cron?.requestUpdate();
 
                 // Authenticate
                 this.send({
@@ -230,6 +240,14 @@ class GatewayManager {
             return;
         }
 
+        if (message.type === 'cron_status') {
+            const data = (message as any).data as CronStatusPayload | undefined;
+            if (data) {
+                this.cron?.handleStatus(data);
+            }
+            return;
+        }
+
         if (message.type === 'tasks_status') {
             const data = (message as any).data as TaskStatusPayload | undefined;
             if (data) {
@@ -246,11 +264,36 @@ class GatewayManager {
             return;
         }
 
+        if (message.type === 'command_response' && message.command === 'set_youtube_api_key') {
+            if ((message as any).success) {
+                const masked = (message as any).data?.masked || 'Saved';
+                this.ui.updateYoutubeStatus(`Saved ${masked}`);
+                this.ui.log('YouTube API key saved.', 'success');
+            } else {
+                const error = (message as any).error || 'Failed to save YouTube API key';
+                this.ui.updateYoutubeStatus('Save failed');
+                this.ui.log(error, 'error');
+            }
+            return;
+        }
+
+        if (message.type === 'command_response' && message.command === 'get_youtube_api_key') {
+            const configured = (message as any).data?.configured;
+            const masked = (message as any).data?.masked || '';
+            const status = configured ? `Configured ${masked}` : 'Not configured';
+            this.ui.updateYoutubeStatus(status);
+            return;
+        }
+
         if (message.type === 'response' && message.content?.text === 'Authenticated successfully') {
             this.ui.log('Authentication successful.', 'success');
             this.ui.requestMcpStatus(this);
         } else if (message.type === 'response' || message.type === 'event') {
             // Handle regular chat response or event
+            if (message.content?.text && /^\[Cron\]/i.test(message.content.text)) {
+                this.ui.showToast(message.content.text, 'info');
+                this.cron?.recordEventFromMessage(message.content.text);
+            }
             if (message.content && message.content.audio) {
                 this.chat.addMessage({
                     id: Date.now().toString(),
@@ -304,7 +347,12 @@ class UIManager {
         mcpLastRefresh: HTMLElement | null;
         mcpServerList: HTMLElement | null;
         mcpStatusMessage: HTMLElement | null;
+        youtubeKeyInputs: HTMLInputElement[];
+        youtubeSaveButtons: HTMLButtonElement[];
+        youtubeRefreshButtons: HTMLButtonElement[];
+        youtubeStatusInputs: HTMLInputElement[];
     };
+    private toastContainer: HTMLElement | null = null;
     private startTime: number;
 
     constructor() {
@@ -327,12 +375,18 @@ class UIManager {
             mcpToolsCount: document.querySelector('[data-mcp-tools-count]'),
             mcpLastRefresh: document.querySelector('[data-mcp-last-refresh]'),
             mcpServerList: document.querySelector('[data-mcp-server-list]'),
-            mcpStatusMessage: document.querySelector('[data-mcp-status-message]')
+            mcpStatusMessage: document.querySelector('[data-mcp-status-message]'),
+            youtubeKeyInputs: Array.from(document.querySelectorAll('[data-youtube-api-key]')) as HTMLInputElement[],
+            youtubeSaveButtons: Array.from(document.querySelectorAll('[data-youtube-save]')) as HTMLButtonElement[],
+            youtubeRefreshButtons: Array.from(document.querySelectorAll('[data-youtube-refresh]')) as HTMLButtonElement[],
+            youtubeStatusInputs: Array.from(document.querySelectorAll('[data-youtube-status]')) as HTMLInputElement[]
         };
 
         this.startTime = Date.now();
         this.startUptimeClock();
         this.prefillConnectionInputs();
+        this.prefillYoutubeKey();
+        this.ensureToastContainer();
     }
 
     public bindEvents(gateway: GatewayManager) {
@@ -372,6 +426,29 @@ class UIManager {
         this.els.mcpStatusButtons.forEach(btn => {
             btn.addEventListener('click', () => {
                 this.requestMcpStatus(gateway);
+            });
+        });
+
+        this.els.youtubeSaveButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const panel = btn.closest('section') || document;
+                const input = panel.querySelector('[data-youtube-api-key]') as HTMLInputElement | null
+                    || this.els.youtubeKeyInputs[0];
+                const apiKey = input?.value?.trim() || '';
+
+                if (!apiKey) {
+                    this.updateYoutubeStatus('Missing API key');
+                    return;
+                }
+
+                localStorage.setItem('atlas_youtube_api_key', apiKey);
+                this.requestYoutubeSave(gateway, apiKey);
+            });
+        });
+
+        this.els.youtubeRefreshButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.requestYoutubeStatus(gateway);
             });
         });
     }
@@ -507,6 +584,41 @@ class UIManager {
         });
     }
 
+    public requestYoutubeSave(gateway: GatewayManager, apiKey: string) {
+        if (!gateway.isConnected) {
+            this.updateYoutubeStatus('Gateway disconnected');
+            return;
+        }
+        gateway.send({
+            type: 'command',
+            command: 'set_youtube_api_key',
+            channel: 'web',
+            chatId: getStoredChatId(),
+            apiKey
+        } as any);
+        this.updateYoutubeStatus('Saving...');
+    }
+
+    public requestYoutubeStatus(gateway: GatewayManager) {
+        if (!gateway.isConnected) {
+            this.updateYoutubeStatus('Gateway disconnected');
+            return;
+        }
+        gateway.send({
+            type: 'command',
+            command: 'get_youtube_api_key',
+            channel: 'web',
+            chatId: getStoredChatId()
+        } as any);
+        this.updateYoutubeStatus('Checking...');
+    }
+
+    public updateYoutubeStatus(message: string) {
+        this.els.youtubeStatusInputs.forEach(input => {
+            input.value = message;
+        });
+    }
+
     public log(message: string, level: string = 'info') {
         const entry = document.createElement('div');
         entry.className = 'log-entry';
@@ -519,8 +631,50 @@ class UIManager {
         if (this.els.logs) this.els.logs.scrollTop = this.els.logs.scrollHeight;
     }
 
+    public showToast(message: string, variant: 'info' | 'success' | 'warn' | 'error' = 'info') {
+        if (!this.toastContainer) {
+            this.ensureToastContainer();
+        }
+        if (!this.toastContainer) return;
+
+        const toast = document.createElement('div');
+        toast.className = `toast ${variant}`;
+        toast.textContent = message;
+
+        this.toastContainer.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('show'));
+
+        const remove = () => {
+            toast.classList.remove('show');
+            toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+        };
+
+        setTimeout(remove, 4500);
+    }
+
     private hasMcpUi(): boolean {
         return Boolean(this.els.mcpServerList || this.els.mcpServersCount || this.els.mcpToolsCount);
+    }
+
+    private prefillYoutubeKey() {
+        const stored = localStorage.getItem('atlas_youtube_api_key') || '';
+        if (!stored) return;
+        this.els.youtubeKeyInputs.forEach(input => {
+            if (!input.value) input.value = stored;
+        });
+    }
+
+    private ensureToastContainer() {
+        if (this.toastContainer) return;
+        const existing = document.querySelector('.toast-container') as HTMLElement | null;
+        if (existing) {
+            this.toastContainer = existing;
+            return;
+        }
+        const container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+        this.toastContainer = container;
     }
 
     private prefillConnectionInputs() {
@@ -609,6 +763,21 @@ type TaskStatusPayload = {
         completed: Array<any>;
         failed: Array<any>;
     };
+};
+
+type CronStatusPayload = {
+    tasks: Array<{
+        id: string;
+        name: string;
+        pattern: string;
+        nextRun?: string | null;
+        lastRun?: string | null;
+    }>;
+    events?: Array<{
+        id: string;
+        name: string;
+        timestamp: string;
+    }>;
 };
 
 type McpServerStatus = {
@@ -744,6 +913,156 @@ class TasksManager {
     }
 }
 
+class CronPanel {
+    private pollingId: number | null = null;
+    private events: Array<{ id: string; name: string; timestamp: string }> = [];
+    private els: {
+        count?: HTMLElement | null;
+        nextRun?: HTMLElement | null;
+        lastEvent?: HTMLElement | null;
+        taskList?: HTMLElement | null;
+        eventList?: HTMLElement | null;
+        refreshButtons?: HTMLButtonElement[];
+    };
+
+    constructor(private gatewayProvider: () => GatewayManager) {
+        this.els = {
+            count: document.getElementById('cron-count'),
+            nextRun: document.getElementById('cron-next-run'),
+            lastEvent: document.getElementById('cron-last-event'),
+            taskList: document.getElementById('cron-task-list'),
+            eventList: document.getElementById('cron-event-list'),
+            refreshButtons: Array.from(document.querySelectorAll('[data-cron-refresh]')) as HTMLButtonElement[]
+        };
+
+        const hasUI = Object.values(this.els).some(Boolean);
+        if (hasUI) {
+            this.bindEvents();
+            this.startPolling();
+        }
+    }
+
+    private bindEvents() {
+        this.els.refreshButtons?.forEach(btn => {
+            btn.addEventListener('click', () => this.requestUpdate());
+        });
+    }
+
+    private startPolling() {
+        if (this.pollingId) return;
+        this.requestUpdate();
+        this.pollingId = window.setInterval(() => {
+            this.requestUpdate();
+        }, 15000);
+    }
+
+    public requestUpdate() {
+        const gateway = this.gatewayProvider();
+        if (!gateway || !gateway.isConnected) return;
+        gateway.send({
+            type: 'command',
+            command: 'cron_status',
+            channel: 'web',
+            chatId: getStoredChatId()
+        } as any);
+    }
+
+    public handleStatus(payload: CronStatusPayload) {
+        const tasks = payload.tasks || [];
+        if (this.els.count) this.els.count.textContent = String(tasks.length);
+
+        const nextRun = tasks
+            .map(t => t.nextRun)
+            .filter(Boolean)
+            .map(t => new Date(t as string))
+            .sort((a, b) => a.getTime() - b.getTime())[0];
+        if (this.els.nextRun) {
+            this.els.nextRun.textContent = nextRun ? nextRun.toLocaleString() : '--';
+        }
+
+        if (payload.events && payload.events.length) {
+            this.events = payload.events.slice(0, 20);
+            this.renderEvents();
+        }
+
+        this.renderTasks(tasks);
+    }
+
+    public recordEventFromMessage(text: string) {
+        const match = text.match(/Executed task:\s*(.+)$/i);
+        const name = match ? match[1].trim() : text;
+        this.events.unshift({
+            id: `local-${Date.now()}`,
+            name,
+            timestamp: new Date().toISOString()
+        });
+        if (this.events.length > 20) this.events.pop();
+        this.renderEvents();
+    }
+
+    private renderTasks(tasks: CronStatusPayload['tasks']) {
+        if (!this.els.taskList) return;
+        this.els.taskList.innerHTML = '';
+
+        if (!tasks.length) {
+            const empty = document.createElement('div');
+            empty.className = 'cron-empty';
+            empty.textContent = 'No scheduled tasks found.';
+            this.els.taskList.appendChild(empty);
+            return;
+        }
+
+        tasks.forEach(task => {
+            const row = document.createElement('div');
+            row.className = 'cron-row';
+            const nextRun = task.nextRun ? new Date(task.nextRun).toLocaleString() : '--';
+            const lastRun = task.lastRun ? new Date(task.lastRun).toLocaleString() : '--';
+            row.innerHTML = `
+                <div class="cron-main">
+                    <div class="cron-title">${escapeHtml(task.name || task.id)}</div>
+                    <div class="cron-meta">Pattern: ${escapeHtml(task.pattern)}</div>
+                </div>
+                <div class="cron-time">
+                    <div><span>Next:</span> ${escapeHtml(nextRun)}</div>
+                    <div><span>Last:</span> ${escapeHtml(lastRun)}</div>
+                </div>
+            `;
+            this.els.taskList?.appendChild(row);
+        });
+    }
+
+    private renderEvents() {
+        if (!this.els.eventList) return;
+        this.els.eventList.innerHTML = '';
+
+        if (!this.events.length) {
+            const empty = document.createElement('div');
+            empty.className = 'cron-empty';
+            empty.textContent = 'No recent cron executions.';
+            this.els.eventList.appendChild(empty);
+            if (this.els.lastEvent) this.els.lastEvent.textContent = '--';
+            return;
+        }
+
+        if (this.els.lastEvent) {
+            const latest = this.events[0];
+            this.els.lastEvent.textContent = latest ? new Date(latest.timestamp).toLocaleTimeString() : '--';
+        }
+
+        this.events.forEach(evt => {
+            const row = document.createElement('div');
+            row.className = 'cron-row';
+            row.innerHTML = `
+                <div class="cron-main">
+                    <div class="cron-title">${escapeHtml(evt.name)}</div>
+                    <div class="cron-meta">${escapeHtml(new Date(evt.timestamp).toLocaleString())}</div>
+                </div>
+            `;
+            this.els.eventList?.appendChild(row);
+        });
+    }
+}
+
 class ChatManager {
     private container: HTMLElement | null;
     private form: HTMLFormElement | null;
@@ -752,6 +1071,8 @@ class ChatManager {
     private searchClearBtn: HTMLButtonElement | null;
     private searchAllToggle: HTMLInputElement | null;
     private voiceBtn: HTMLButtonElement | null;
+    private fileInput: HTMLInputElement | null;
+    private attachBtn: HTMLButtonElement | null;
     private messages: ChatMessage[] = [];
     private STORAGE_KEY = 'clawdbot_chat_history_v1';
     private searchTimer: number | null = null;
@@ -772,6 +1093,8 @@ class ChatManager {
         this.searchClearBtn = document.getElementById('chat-search-clear') as HTMLButtonElement;
         this.searchAllToggle = document.getElementById('chat-search-all') as HTMLInputElement;
         this.voiceBtn = document.querySelector('[data-voice-btn]') as HTMLButtonElement;
+        this.fileInput = document.querySelector('[data-file-input]') as HTMLInputElement;
+        this.attachBtn = document.querySelector('[data-attach-btn]') as HTMLButtonElement;
 
         this.loadHistory();
         this.bindEvents();
@@ -802,6 +1125,35 @@ class ChatManager {
 
         this.voiceBtn?.addEventListener('click', () => {
             void this.toggleVoiceRecording();
+        });
+
+        this.attachBtn?.addEventListener('click', () => {
+            this.fileInput?.click();
+        });
+
+        this.fileInput?.addEventListener('change', () => {
+            const files = this.fileInput?.files;
+            if (files && files.length > 0) {
+                void this.handleFileSelection(files);
+            }
+            if (this.fileInput) this.fileInput.value = '';
+        });
+
+        document.addEventListener('paste', (event) => {
+            const items = event.clipboardData?.items;
+            if (!items || items.length === 0) return;
+            const files: File[] = [];
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind === 'file') {
+                    const file = item.getAsFile();
+                    if (file) files.push(file);
+                }
+            }
+            if (files.length > 0) {
+                event.preventDefault();
+                void this.handleFileSelection(files);
+            }
         });
     }
 
@@ -839,7 +1191,7 @@ class ChatManager {
     public addMessage(msg: ChatMessage) {
         this.messages.push(msg);
         if (!this.searchQuery) {
-            if (msg.role === 'agent' && this.streamEl && !msg.audio) {
+            if (msg.role === 'agent' && this.streamEl && !msg.audio && !msg.image) {
                 this.streamEl.innerHTML = renderMarkdown(msg.text);
                 this.streamEl.classList.remove('streaming');
                 this.streamEl = null;
@@ -860,13 +1212,21 @@ class ChatManager {
 
         const el = document.createElement('div');
         el.className = `message ${msg.role}`;
-        if (msg.audio) {
+        if (msg.audio || msg.image) {
             const body = document.createElement('div');
             if (msg.text) {
                 const textEl = document.createElement('div');
                 textEl.className = 'message-text';
                 textEl.innerHTML = renderMarkdown(msg.text);
                 body.appendChild(textEl);
+            }
+            const imageUrl = this.toImageUrl(msg.image);
+            if (imageUrl) {
+                const img = document.createElement('img');
+                img.className = 'message-image';
+                img.alt = msg.image?.filename || 'Image attachment';
+                img.src = imageUrl;
+                body.appendChild(img);
             }
             const audioUrl = this.toAudioUrl(msg.audio);
             if (audioUrl) {
@@ -1099,6 +1459,69 @@ class ChatManager {
         this.input.value = '';
     }
 
+    private async handleFileSelection(files: FileList | File[]) {
+        const gateway = this.gatewayProvider();
+        if (!gateway) return;
+
+        const caption = this.input?.value.trim() || '';
+
+        for (const file of Array.from(files)) {
+            if (!file.type.startsWith('image/')) {
+                this.addMessage({
+                    id: Date.now().toString() + '_file_warn',
+                    role: 'system',
+                    text: `Warning: Only image attachments are supported right now (${file.name}).`,
+                    timestamp: Date.now()
+                });
+                continue;
+            }
+
+            const dataUrl = await this.fileToDataUrl(file);
+            const base64 = dataUrl.split(',')[1] || '';
+            const filename = file.name || `image_${Date.now()}.png`;
+
+            this.addMessage({
+                id: Date.now().toString(),
+                role: 'user',
+                text: caption ? caption : 'Image',
+                timestamp: Date.now(),
+                image: {
+                    url: dataUrl,
+                    mimeType: file.type || 'image/png',
+                    filename
+                }
+            });
+
+            if (gateway.isConnected) {
+                gateway.send({
+                    type: 'message',
+                    channel: 'web',
+                    chatId: this.getChatId(),
+                    metadata: {
+                        userId: this.getUserId()
+                    },
+                    content: {
+                        text: caption,
+                        image: {
+                            data: base64,
+                            mimeType: file.type || 'image/png',
+                            filename
+                        }
+                    }
+                });
+            } else {
+                this.addMessage({
+                    id: Date.now().toString() + '_img_err',
+                    role: 'system',
+                    text: 'Warning: Gateway disconnected. Image not sent.',
+                    timestamp: Date.now()
+                });
+            }
+        }
+
+        if (this.input) this.input.value = '';
+    }
+
     private async toggleVoiceRecording() {
         if (this.recording) {
             this.stopVoiceRecording();
@@ -1258,12 +1681,49 @@ class ChatManager {
 
     private toAudioUrl(audio: ChatMessage['audio']): string | null {
         if (!audio) return null;
-        if (audio.url) return audio.url;
+        if (audio.url) return this.normalizeAudioUrl(audio.url);
         if (audio.data) {
             const mime = audio.mimeType || 'audio/ogg';
             return `data:${mime};base64,${audio.data}`;
         }
         return null;
+    }
+
+    private toImageUrl(image: ChatMessage['image']): string | null {
+        if (!image) return null;
+        if (image.url) return image.url;
+        if (image.data) {
+            const mime = image.mimeType || 'image/png';
+            return `data:${mime};base64,${image.data}`;
+        }
+        return null;
+    }
+
+    private fileToDataUrl(file: File): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+        });
+    }
+
+    private normalizeAudioUrl(url: string): string {
+        if (!url) return url;
+        if (url.startsWith('file://')) {
+            const pathPart = url.replace(/^file:\/\//, '');
+            const filename = pathPart.split(/[/\\]/).pop();
+            if (filename) {
+                return `${window.location.origin}/voice/${encodeURIComponent(filename)}`;
+            }
+        }
+        if (/^[A-Za-z]:[\\/]/.test(url)) {
+            const filename = url.split(/[/\\]/).pop();
+            if (filename) {
+                return `${window.location.origin}/voice/${encodeURIComponent(filename)}`;
+            }
+        }
+        return url;
     }
 
     private serializeForStorage(msg: ChatMessage): ChatMessage {
@@ -1272,6 +1732,13 @@ class ChatManager {
                 ...msg,
                 text: msg.text || 'Voice message',
                 audio: undefined
+            };
+        }
+        if (msg.image) {
+            return {
+                ...msg,
+                text: msg.text || 'Image',
+                image: undefined
             };
         }
         return msg;
@@ -1286,13 +1753,18 @@ class ChatManager {
 
 // Initialize
 const ui = new UIManager();
+const reportUpdated = document.getElementById('report-updated');
+if (reportUpdated) {
+    reportUpdated.textContent = new Date().toLocaleString();
+}
 const nav = new NavigationManager();
 let gateway: GatewayManager;
 
 // Deferred gateway provider for circular dependency resolution
 const chat = new ChatManager(() => gateway);
 const tasks = new TasksManager(() => gateway);
-gateway = new GatewayManager(ui, chat, tasks);
+const cronPanel = new CronPanel(() => gateway);
+gateway = new GatewayManager(ui, chat, tasks, cronPanel);
 tasks.setReady();
 
 ui.bindEvents(gateway);

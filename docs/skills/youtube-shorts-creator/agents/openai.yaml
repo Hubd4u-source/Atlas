@@ -1,0 +1,4 @@
+interface:
+  display_name: "YouTube Shorts Creator"
+  short_description: "YouTube Shorts analysis and script pipeline."
+  default_prompt: "Analyze a YouTube channel and generate a Shorts capability package."

@@ -1,7 +1,7 @@
 export type BrowserProfileConfig = {
     cdpPort?: number;
     cdpUrl?: string;
-    driver?: "openclaw" | "extension";
+    driver?: "openclaw" | "extension" | "playwright";
     color: string;
 };
 
@@ -30,5 +30,5 @@ export type ResolvedBrowserProfile = {
     cdpHost: string;
     cdpIsLoopback: boolean;
     color: string;
-    driver: "openclaw" | "extension";
+    driver: "openclaw" | "extension" | "playwright";
 };

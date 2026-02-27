@@ -1,0 +1,5 @@
+VEO PROMPT TEMPLATE
+
+Write a single paragraph prompt that describes the full short. Include subject, environment, camera movement, lighting, mood, motion, pacing, and any text overlays. Avoid lists. Use cinematic, concrete details. End with aspect ratio and duration.
+
+{{PROMPT_PARAGRAPH}}

@@ -1,0 +1,5 @@
+VEO PROMPT TEMPLATE
+
+Write a single paragraph prompt that describes the full short. Include subject, environment, camera movement, lighting, mood, motion, pacing, and any text overlays. Avoid lists. Use cinematic, concrete details. End with aspect ratio and duration.
+
+Vertical 9:16 short showing a focused developer workstation scene where bite is explained with crisp motion graphics, fast jump cuts, and subtle neon lighting. The camera starts with a tight close-up on a laptop screen, then pans to a whiteboard as the three-step workflow appears as kinetic text overlays. The mood is energetic and precise, with clean UI highlights, soft blue rim lighting, and quick cuts matching the narration pacing. End on a bold CTA overlay to follow for more workflow boosts. Aspect ratio 9:16, duration 60 seconds.

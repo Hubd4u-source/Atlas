@@ -13,7 +13,7 @@ export type ProfileSummary = {
     name: string;
     cdpPort?: number;
     cdpUrl?: string;
-    driver: "openclaw" | "extension";
+    driver: "openclaw" | "extension" | "playwright";
     color: string;
 };
 
@@ -31,7 +31,7 @@ export async function listProfiles(): Promise<ProfileSummary[]> {
 
 export async function createProfile(opts: {
     name: string;
-    driver?: "openclaw" | "extension";
+    driver?: "openclaw" | "extension" | "playwright";
     color?: string;
     cdpPort?: number;
 }): Promise<ProfileSummary> {

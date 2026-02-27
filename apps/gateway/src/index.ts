@@ -10,6 +10,7 @@ import * as os from 'os';
 import {
     Gateway,
     CronManager,
+    WebhookManager,
     type AppConfig,
     type IncomingMessage,
     type MessageContent,
@@ -27,6 +28,7 @@ import { McpManager, type McpStatus } from './mcp.js';
 
 const CONFIG_FILE = path.join(os.homedir(), '.atlas', 'config.json');
 const DATA_DIR = path.join(os.homedir(), '.atlas', 'data');
+const LOCAL_CONFIG_FILE = path.join(process.cwd(), 'config.json');
 
 // Global references
 let telegramChannelRef: TelegramChannel | null = null;
@@ -61,12 +63,18 @@ const transcribeAudioContent = async (audio?: MessageContent['audio']): Promise<
 
     return null;
 };
+
+const maskSecret = (value: string): string => {
+    if (!value) return '';
+    if (value.length <= 6) return `${value.slice(0, 2)}***`;
+    return `${value.slice(0, 4)}...${value.slice(-4)}`;
+};
 /**
  * Load configuration from file
  */
 async function loadConfig(): Promise<AppConfig> {
-    const localConfig = path.join(process.cwd(), 'config.json');
-    const globalConfig = path.join(os.homedir(), '.atlas', 'config.json');
+    const localConfig = LOCAL_CONFIG_FILE;
+    const globalConfig = CONFIG_FILE;
 
     try {
         if (await fs.access(localConfig).then(() => true).catch(() => false)) {
@@ -83,6 +91,14 @@ async function loadConfig(): Promise<AppConfig> {
         console.error('   Expected to find config.json in current directory or:', globalConfig);
         process.exit(1);
     }
+}
+
+async function persistConfigUpdate(updated: AppConfig): Promise<string> {
+    const localExists = await fs.access(LOCAL_CONFIG_FILE).then(() => true).catch(() => false);
+    const target = localExists ? LOCAL_CONFIG_FILE : CONFIG_FILE;
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, JSON.stringify(updated, null, 4), 'utf-8');
+    return target;
 }
 
 /**
@@ -313,6 +329,24 @@ async function main() {
         enabled: config.mcp?.enabled !== false,
         configPath: config.mcp?.configPath
     });
+    const cronEventLog: Array<{ id: string; name: string; timestamp: string }> = [];
+
+    cronManager.on('taskCompleted', (id: string) => {
+        const status = cronManager.getTasksStatus().find(t => t.id === id);
+        const name = status?.name || id;
+        cronEventLog.unshift({ id, name, timestamp: new Date().toISOString() });
+        if (cronEventLog.length > 50) {
+            cronEventLog.pop();
+        }
+    });
+
+    cronManager.on('error', (payload: any) => {
+        const name = payload?.id ? `Error: ${payload.id}` : 'Error';
+        cronEventLog.unshift({ id: payload?.id || 'error', name, timestamp: new Date().toISOString() });
+        if (cronEventLog.length > 50) {
+            cronEventLog.pop();
+        }
+    });
 
     // Combined tools will be filled later, but we need a reference for the proxy
     let allCombinedTools: any[] = [];
@@ -333,6 +367,12 @@ async function main() {
             const msgContent = typeof content === 'string' ? { text: content } : content;
             if (telegramChannelRef) {
                 await telegramChannelRef.sendMessage(chatId, msgContent);
+            }
+        },
+        sendMessageToChannel: async (channel: string, chatId: string, content: string | MessageContent) => {
+            const msgContent = typeof content === 'string' ? { text: content } : content;
+            if (gatewayRef) {
+                await gatewayRef.sendToChannel(channel as ChannelType, chatId, msgContent);
             }
         },
         sendToExtension: async (message: any) => {
@@ -404,6 +444,18 @@ async function main() {
                 },
                 `Scheduled Task: ${task.title}`
             );
+        },
+        enqueueTask: (task: { title: string; description?: string; priority?: string; maxRetries?: number; channel: string; chatId: string; userId?: string }) => {
+            if (!taskManagerRef) return;
+            taskManagerRef.enqueueTasks([{
+                title: task.title,
+                description: task.description,
+                priority: (task.priority as any) || 'medium',
+                channel: task.channel,
+                chatId: task.chatId,
+                userId: task.userId,
+                maxRetries: task.maxRetries
+            }]);
         }
     };
 
@@ -879,7 +931,7 @@ async function main() {
                 if (!summary) continue;
 
                 await gateway.sendToChannel(channel as ChannelType, chatId, { text: summary });
-                await fs.appendFile(DAILY_SUMMARY_FILE, `\n\n${summary}\n`, 'utf-8').catch(() => {});
+                await fs.appendFile(DAILY_SUMMARY_FILE, `\n\n${summary}\n`, 'utf-8').catch(() => { });
             }
         } catch (error) {
             console.error('Failed to send daily summaries:', error);
@@ -1061,6 +1113,69 @@ async function main() {
             return;
         }
 
+        if (message.type === 'command' && message.command === 'set_youtube_api_key') {
+            const channel = typeof message.channel === 'string' ? message.channel : 'web';
+            const chatId = typeof message.chatId === 'string' ? message.chatId : 'default';
+            const apiKeyRaw = typeof message.apiKey === 'string' ? message.apiKey.trim() : '';
+
+            if (!apiKeyRaw) {
+                await gateway.sendRawToChannel(channel as ChannelType, {
+                    type: 'command_response',
+                    channel,
+                    chatId,
+                    command: 'set_youtube_api_key',
+                    success: false,
+                    error: 'Missing API key'
+                });
+                return;
+            }
+
+            try {
+                const updatedConfig: AppConfig = { ...config, youtube: { ...(config.youtube || {}), apiKey: apiKeyRaw } };
+                const target = await persistConfigUpdate(updatedConfig);
+                config.youtube = updatedConfig.youtube;
+                process.env.YOUTUBE_API_KEY = apiKeyRaw;
+
+                await gateway.sendRawToChannel(channel as ChannelType, {
+                    type: 'command_response',
+                    channel,
+                    chatId,
+                    command: 'set_youtube_api_key',
+                    success: true,
+                    data: { target, masked: maskSecret(apiKeyRaw) }
+                });
+            } catch (error: any) {
+                await gateway.sendRawToChannel(channel as ChannelType, {
+                    type: 'command_response',
+                    channel,
+                    chatId,
+                    command: 'set_youtube_api_key',
+                    success: false,
+                    error: error?.message || 'Failed to save API key'
+                });
+            }
+            return;
+        }
+
+        if (message.type === 'command' && message.command === 'get_youtube_api_key') {
+            const channel = typeof message.channel === 'string' ? message.channel : 'web';
+            const chatId = typeof message.chatId === 'string' ? message.chatId : 'default';
+            const key = config.youtube?.apiKey || '';
+
+            await gateway.sendRawToChannel(channel as ChannelType, {
+                type: 'command_response',
+                channel,
+                chatId,
+                command: 'get_youtube_api_key',
+                success: true,
+                data: {
+                    masked: key ? maskSecret(key) : '',
+                    configured: Boolean(key)
+                }
+            });
+            return;
+        }
+
         if (message.type === 'command' && message.command === 'mcp_status') {
             const channel = typeof message.channel === 'string' ? message.channel : 'web';
             const chatId = typeof message.chatId === 'string' ? message.chatId : 'default';
@@ -1143,6 +1258,28 @@ async function main() {
             });
         }
 
+        if (message.type === 'command' && message.command === 'cron_status') {
+            const channel = typeof message.channel === 'string' ? message.channel : 'web';
+            const chatId = typeof message.chatId === 'string' ? message.chatId : 'default';
+            const tasks = cronManager.getTasksStatus().map(t => ({
+                id: t.id,
+                name: t.name || t.id,
+                pattern: t.pattern,
+                nextRun: t.nextRun ? new Date(t.nextRun).toISOString() : null,
+                lastRun: t.lastRun ? new Date(t.lastRun).toISOString() : null
+            }));
+
+            await gateway.sendRawToChannel(channel as ChannelType, {
+                type: 'cron_status',
+                channel,
+                chatId,
+                data: {
+                    tasks,
+                    events: cronEventLog
+                }
+            });
+        }
+
         if (message.type === 'command' && message.command === 'list_tasks') {
             const channel = typeof message.channel === 'string' ? message.channel : 'web';
             const chatId = typeof message.chatId === 'string' ? message.chatId : 'default';
@@ -1172,7 +1309,7 @@ async function main() {
             const filename = output.filename || (filePath ? path.basename(filePath) : undefined);
 
             await respond({
-                text: output.message || 'Voice message',
+                text: 'Voice message',
                 audio: {
                     url: String(url),
                     mimeType: output.mimeType || 'audio/mpeg',
@@ -1617,17 +1754,18 @@ async function main() {
                 await updateStatus(`🔧 *Working...* (Step ${iterations})\n\n🛠️ Running: \`${toolNames}\``);
 
                 // Add assistant tool call to session
-            const assistantToolMessage: ConversationMessage = {
-                role: 'assistant',
-                content: response.content,
-                timestamp: new Date(),
-                toolCalls: response.toolCalls
-            };
-            gateway.sessionManager.addMessage(session, assistantToolMessage);
-            await memory.remember(message.channel, message.chatId, assistantToolMessage, userId);
+                const assistantToolMessage: ConversationMessage = {
+                    role: 'assistant',
+                    content: response.content,
+                    timestamp: new Date(),
+                    toolCalls: response.toolCalls
+                };
+                gateway.sessionManager.addMessage(session, assistantToolMessage);
+                await memory.remember(message.channel, message.chatId, assistantToolMessage, userId);
 
                 // Execute tools
                 const toolResults = [];
+                const hasSendFileTool = response.toolCalls.some(t => t.name === 'send_file');
                 let loopBreakTriggered = false;
                 for (const toolCall of response.toolCalls) {
                     console.log(`   → ${toolCall.name}`);
@@ -1677,7 +1815,9 @@ async function main() {
                                 await telegramChannelRef.sendMessage(chatId, { text: `[Voice Message](${output.url})` });
                             }
                         }
-                        await sendWebVoice(output);
+                        if (!hasSendFileTool) {
+                            await sendWebVoice(output);
+                        }
                     }
                 }
 
@@ -1704,14 +1844,14 @@ async function main() {
 
 
                 // Add tool results to session
-            const toolMessage: ConversationMessage = {
-                role: 'tool',
-                content: '',
-                timestamp: new Date(),
-                toolResults
-            };
-            gateway.sessionManager.addMessage(session, toolMessage);
-            await memory.remember(message.channel, message.chatId, toolMessage, userId);
+                const toolMessage: ConversationMessage = {
+                    role: 'tool',
+                    content: '',
+                    timestamp: new Date(),
+                    toolResults
+                };
+                gateway.sessionManager.addMessage(session, toolMessage);
+                await memory.remember(message.channel, message.chatId, toolMessage, userId);
 
                 // Re-prepare context for next iteration (include tool outputs in Immediate Layer)
                 const updatedMessages = gateway.sessionManager.getMessages(session);
@@ -1918,6 +2058,191 @@ async function main() {
 
         channels.push({ name: 'telegram', channel: telegramChannel });
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Initialize WebhookManager
+    // ═══════════════════════════════════════════════════════════════════
+    const webhookManager = new WebhookManager();
+    console.log('✓ Webhook Manager initialized');
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Register API Routes (Cron, Webhooks, Browser)
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ── Cron API ─────────────────────────────────────────────────────
+    gateway.registerApiRoute('GET', '/api/cron/jobs', async (_req, res) => {
+        const jobs = cronManager.getTasksStatus();
+        res.writeHead(200);
+        res.end(JSON.stringify({ jobs, total: jobs.length, active: cronManager.activeCount }));
+    });
+
+    gateway.registerApiRoute('POST', '/api/cron/jobs', async (_req, res, { body }) => {
+        const data = body as any;
+        if (!data?.id || !data?.pattern) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'id and pattern are required' }));
+            return;
+        }
+        if (data.oneShot || data.runAt) {
+            cronManager.scheduleOnce(
+                data.id,
+                data.runAt || data.pattern,
+                async () => { console.log(`[Cron API] One-shot ${data.id} fired`); },
+                data.name,
+                { webhookUrl: data.webhookUrl }
+            );
+        } else {
+            cronManager.schedule(
+                data.id,
+                data.pattern,
+                async () => { console.log(`[Cron API] Job ${data.id} fired`); },
+                data.name,
+                data.timezone,
+                { webhookUrl: data.webhookUrl, enabled: data.enabled !== false }
+            );
+        }
+        res.writeHead(201);
+        res.end(JSON.stringify({ ok: true, id: data.id }));
+    });
+
+    gateway.registerApiRoute('DELETE', '/api/cron/jobs/:id', async (_req, res, { query }) => {
+        const id = query.id;
+        if (!cronManager.has(id)) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Job '${id}' not found` }));
+            return;
+        }
+        cronManager.stop(id);
+        res.writeHead(200);
+        res.end(JSON.stringify({ ok: true, deleted: id }));
+    });
+
+    gateway.registerApiRoute('POST', '/api/cron/jobs/:id/run', async (_req, res, { query }) => {
+        const ok = await cronManager.triggerNow(query.id);
+        if (!ok) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Job '${query.id}' not found` }));
+            return;
+        }
+        res.writeHead(200);
+        res.end(JSON.stringify({ ok: true, triggered: query.id }));
+    });
+
+    gateway.registerApiRoute('POST', '/api/cron/jobs/:id/pause', async (_req, res, { query }) => {
+        const ok = cronManager.pause(query.id);
+        res.writeHead(ok ? 200 : 404);
+        res.end(JSON.stringify(ok ? { ok: true, paused: query.id } : { error: 'Not found' }));
+    });
+
+    gateway.registerApiRoute('POST', '/api/cron/jobs/:id/resume', async (_req, res, { query }) => {
+        const ok = cronManager.resume(query.id);
+        res.writeHead(ok ? 200 : 404);
+        res.end(JSON.stringify(ok ? { ok: true, resumed: query.id } : { error: 'Not found' }));
+    });
+
+    gateway.registerApiRoute('GET', '/api/cron/jobs/:id/history', async (_req, res, { query }) => {
+        const history = cronManager.getRunHistory(query.id);
+        res.writeHead(200);
+        res.end(JSON.stringify({ jobId: query.id, history, total: history.length }));
+    });
+
+    // ── Webhook API ──────────────────────────────────────────────────
+    gateway.registerApiRoute('GET', '/api/webhooks', async (_req, res) => {
+        res.writeHead(200);
+        res.end(JSON.stringify({ routes: webhookManager.listRoutes(), total: webhookManager.count }));
+    });
+
+    gateway.registerApiRoute('POST', '/api/webhooks/:name', async (req, res, { query, body }) => {
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(req.headers)) {
+            if (typeof v === 'string') headers[k.toLowerCase()] = v;
+        }
+        const result = await webhookManager.handleRequest(query.name, body, headers);
+        res.writeHead(result.status);
+        res.end(JSON.stringify(result.body));
+    });
+
+    // ── Browser API ──────────────────────────────────────────────────
+    gateway.registerApiRoute('GET', '/api/browser/status', async (_req, res) => {
+        res.writeHead(200);
+        res.end(JSON.stringify({
+            ok: true,
+            service: 'Atlas Browser Control',
+            features: ['screenshot', 'snapshot', 'tabs', 'navigate', 'act', 'console'],
+            note: 'Browser control is available via the @atlas/browser-control package'
+        }));
+    });
+
+    gateway.registerApiRoute('POST', '/api/browser/screenshot', async (_req, res, { body }) => {
+        try {
+            const { captureScreenshot } = await import('@atlas/browser-control');
+            const data = body as any || {};
+            const wsUrl = data.wsUrl || 'ws://127.0.0.1:9222';
+            const buffer = await captureScreenshot({
+                wsUrl,
+                fullPage: data.fullPage ?? false,
+                format: data.format || 'png',
+                quality: data.quality,
+            });
+            const base64 = buffer.toString('base64');
+            res.writeHead(200);
+            res.end(JSON.stringify({
+                ok: true,
+                format: data.format || 'png',
+                size: buffer.length,
+                data: `data:image/${data.format || 'png'};base64,${base64}`,
+            }));
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: message, hint: 'Ensure Chrome is running with --remote-debugging-port=9222' }));
+        }
+    });
+
+    gateway.registerApiRoute('GET', '/api/browser/tabs', async (_req, res) => {
+        try {
+            const response = await fetch('http://127.0.0.1:9222/json');
+            const tabs = await response.json();
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, tabs }));
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: message, hint: 'Chrome not reachable on port 9222' }));
+        }
+    });
+
+    gateway.registerApiRoute('POST', '/api/browser/navigate', async (_req, res, { body }) => {
+        try {
+            const { evaluateJavaScript } = await import('@atlas/browser-control');
+            const data = body as any;
+            if (!data?.url) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'url is required' }));
+                return;
+            }
+            const wsUrl = data.wsUrl || 'ws://127.0.0.1:9222';
+            // Fetch first available page
+            const pagesRes = await fetch('http://127.0.0.1:9222/json');
+            const pages = await pagesRes.json() as any[];
+            const page = pages.find((p: any) => p.type === 'page');
+            if (!page?.webSocketDebuggerUrl) {
+                throw new Error('No page target found');
+            }
+            await evaluateJavaScript({
+                wsUrl: page.webSocketDebuggerUrl,
+                expression: `window.location.href = ${JSON.stringify(data.url)}`,
+            });
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, navigatedTo: data.url }));
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: message }));
+        }
+    });
+
+    console.log(`✓ API Routes registered (${12} endpoints)`);
 
     // Start gateway
     await gateway.start();

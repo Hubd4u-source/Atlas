@@ -35,4 +35,10 @@ export interface ChatMessage {
         mimeType?: string;
         filename?: string;
     };
+    image?: {
+        data?: string;
+        url?: string;
+        mimeType?: string;
+        filename?: string;
+    };
 }
