@@ -137,6 +137,7 @@ export interface ToolContext {
     sendMessage: (content: MessageContent) => Promise<void>;
     sendToExtension?: (message: any) => Promise<void>;
     scheduleTask?: (task: any) => void;
+    cancelScheduledTask?: (id: string) => void;
 }
 
 /** Gateway configuration */

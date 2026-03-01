@@ -24,7 +24,7 @@ export { voiceTools, generateVoiceConfig } from './voice-tool.js';
 import { voiceTools } from './voice-tool.js';
 export { sendFileConfig } from './send-file-tool.js';
 import { sendFileConfig } from './send-file-tool.js';
-export { taskTools, enqueueTasksTool, listTasksTool, scheduleTaskTool, setTaskManager } from './task-tools.js';
+export { taskTools, enqueueTasksTool, listTasksTool, scheduleTaskTool, cancelTaskTool, cancelScheduledTaskTool, setTaskManager } from './task-tools.js';
 import { taskTools } from './task-tools.js';
 
 export const allTools: ToolDefinition[] = [...fileTools, ...shellTools, ...todoTools, ...templateTools, ...memoryTools, ...idleTools, ...apiTools, ...voiceTools, ...taskTools, sendFileConfig];

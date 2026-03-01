@@ -118,7 +118,8 @@ export abstract class BaseAgent {
         session: Session,
         sendMessage?: (content: string | import('@atlas/core').MessageContent) => Promise<void>,
         sendToExtension?: (message: any) => Promise<void>,
-        scheduleTask?: (task: any) => void
+        scheduleTask?: (task: any) => void,
+        cancelScheduledTask?: (id: string) => void
     ): Promise<ToolResult> {
         const tool = this.tools.find(t => t.name === toolCall.name);
 
@@ -139,7 +140,8 @@ export abstract class BaseAgent {
                     }
                 },
                 sendToExtension,
-                scheduleTask
+                scheduleTask,
+                cancelScheduledTask
             });
 
             return {

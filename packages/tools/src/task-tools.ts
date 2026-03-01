@@ -179,9 +179,67 @@ export const scheduleTaskTool: ToolDefinition = {
     }
 };
 
+export const cancelTaskTool: ToolDefinition = {
+    name: 'cancel_task',
+    description: 'Cancel a queued or retrying task in the autonomous task queue.',
+    parameters: {
+        type: 'object',
+        properties: {
+            id: { type: 'string', description: 'The ID of the task to cancel' }
+        },
+        required: ['id']
+    },
+    handler: async (args) => {
+        if (!taskManager) {
+            return { success: false, error: 'TaskManager not initialized' };
+        }
+
+        const { id } = args as { id: string };
+        const task = taskManager.getTask(id);
+
+        if (!task) {
+            return { success: false, error: `Task ${id} not found` };
+        }
+
+        taskManager.cancelTask(id);
+
+        return {
+            success: true,
+            message: `Task ${id} cancelled successfully.`
+        };
+    }
+};
+
+export const cancelScheduledTaskTool: ToolDefinition = {
+    name: 'cancel_scheduled_task',
+    description: 'Cancel/delete a recurring scheduled cron job.',
+    parameters: {
+        type: 'object',
+        properties: {
+            id: { type: 'string', description: 'The ID of the scheduled cron job to cancel' }
+        },
+        required: ['id']
+    },
+    handler: async (args, context) => {
+        const { id } = args as { id: string };
+
+        if ((context as any).cancelScheduledTask) {
+            (context as any).cancelScheduledTask(id);
+            return {
+                success: true,
+                message: `Scheduled task ${id} cancelled successfully.`
+            };
+        }
+
+        return { success: false, error: 'Cron scheduling is not available in the current context' };
+    }
+};
+
 export const taskTools: ToolDefinition[] = [
     enqueueTasksTool,
     listTasksTool,
-    scheduleTaskTool
+    scheduleTaskTool,
+    cancelTaskTool,
+    cancelScheduledTaskTool
 ];
 

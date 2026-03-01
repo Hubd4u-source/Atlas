@@ -424,6 +424,9 @@ async function main() {
                 },
                 scheduleTask: (task: any) => {
                     skillContext.scheduleTask(task);
+                },
+                cancelScheduledTask: (id: string) => {
+                    cronService.remove(id);
                 }
             });
         },
@@ -1047,6 +1050,8 @@ async function main() {
                         await skillContext.sendToExtension(msg);
                     }, (task: any) => {
                         skillContext.scheduleTask(task);
+                    }, (id: string) => {
+                        cronService.remove(id);
                     });
                     toolResults.push(result);
                 }
@@ -1856,6 +1861,8 @@ async function main() {
                         await skillContext.sendToExtension(msg);
                     }, (task: any) => {
                         skillContext.scheduleTask(task);
+                    }, (id: string) => {
+                        cronService.remove(id);
                     });
                     toolResults.push(result);
 

@@ -16,10 +16,26 @@ export async function readCronStore(path: string): Promise<CronStoreFile> {
     return { version: 1, jobs: [] };
 }
 
+let writeMutex = Promise.resolve();
+
 export async function writeCronStore(path: string, store: CronStoreFile): Promise<void> {
-    const tmpPath = `${path}.tmp`;
-    await fs.writeFile(tmpPath, JSON.stringify(store, null, 2), 'utf8');
-    await fs.rename(tmpPath, path);
+    const acquireLock = async () => {
+        const prev = writeMutex;
+        let release: () => void;
+        const next = new Promise<void>(resolve => { release = resolve; });
+        writeMutex = prev.then(() => next).catch(() => next);
+        await prev;
+        return release!;
+    };
+
+    const release = await acquireLock();
+    try {
+        const tmpPath = `${path}.tmp`;
+        await fs.writeFile(tmpPath, JSON.stringify(store, null, 2), 'utf8');
+        await fs.rename(tmpPath, path);
+    } finally {
+        release();
+    }
 }
 
 export async function upsertJob(path: string, job: CronJob): Promise<CronJob> {
