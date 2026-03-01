@@ -498,6 +498,10 @@ export class OpenClawMemory {
 
         if (isSessionFile) {
             this.sessionDeltas.set(entry.path, { lastSize: entry.size });
+            // Always read full content for the summary, even if chunking is delta-only
+            fs.readFile(absPath, 'utf-8')
+                .then(fullContent => this.writeSessionSummary(entry.path, fullContent))
+                .catch(err => console.error(`[Memory] Failed to generate session summary for ${entry.path}:`, err));
         }
 
         if (!isIncremental) {
