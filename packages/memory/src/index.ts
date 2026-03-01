@@ -14,3 +14,11 @@ export { type MemoryFileEntry, type MemoryChunk } from './openclaw/internal.js';
 // Episodic Memory (Learn from experiences)
 export { EpisodicMemory, type EpisodicMemoryOptions, type Episode, type EpisodeType, type EpisodeSearchResult } from './openclaw/episodic-memory.js';
 
+// Slash Commands (Memory Management)
+export { 
+    executeSlashCommand, 
+    isSlashCommand, 
+    getAvailableCommands,
+    type SlashCommandResult,
+    type SlashCommandContext
+} from './slash-commands.js';

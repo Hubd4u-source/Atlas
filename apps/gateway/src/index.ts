@@ -1349,6 +1349,31 @@ async function main() {
                 message.content.text = userText;
             }
 
+            // ============================================
+            // SLASH COMMAND HANDLING (OpenClaw-style)
+            // ============================================
+            const { isSlashCommand, executeSlashCommand } = await import('@atlas/memory');
+            
+            if (isSlashCommand(userText)) {
+                console.log(`⚡ Executing slash command: ${userText}`);
+                
+                const result = await executeSlashCommand(userText, {
+                    memory,
+                    session
+                });
+
+                if (result) {
+                    await respond({ text: result.message });
+                    
+                    // Log the command execution
+                    await updateProjectContext(message.channel, message.chatId, 
+                        `[Command: ${userText}] ${result.success ? 'Success' : 'Failed'}`);
+                    
+                    return; // Don't process as regular message
+                }
+            }
+            // ============================================
+
             await updateProjectContext(message.channel, message.chatId, userText);
 
             // Auto-remember simple identity facts (e.g., "my name is X", "I'm X")

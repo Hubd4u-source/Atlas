@@ -40,8 +40,27 @@
         }
     },
     "memory": {
-        "backend": "json",
-        "maxConversationHistory": 50
+        "backend": "openclaw",
+        "maxConversationHistory": 50,
+        "embeddings": {
+            "enabled": false,
+            "fallbackToFts": true
+        },
+        "useHybrid": true,
+        "query": {
+            "minScore": 0.3,
+            "maxResults": 10,
+            "hybrid": {
+                "enabled": true,
+                "vectorWeight": 0.7,
+                "textWeight": 0.3,
+                "candidateMultiplier": 2,
+                "temporalDecay": {
+                    "enabled": true,
+                    "halfLifeDays": 30
+                }
+            }
+        }
     },
     "skills": {
         "enabled": []
