@@ -97,7 +97,7 @@ export class OpenClawMemory {
     private ftsEnabled: boolean;
     private ftsAvailable: boolean = false;
     private vectorDims: number | null = null;
-    
+
     // NEW: Batch failure tracking
     private batchFailureCount = 0;
     private readonly BATCH_FAILURE_LIMIT = 2;
@@ -447,33 +447,76 @@ export class OpenClawMemory {
         this.dirty = false;
     }
 
+    // NEW: Session file tracking for incremental sync
+    private sessionDeltas = new Map<string, { lastSize: number }>();
+
     private async syncFile(absPath: string): Promise<void> {
         const entry = await buildFileEntry(absPath, this.options.workspaceDir);
         if (!entry) return; // File was deleted
 
+        const isSessionFile = entry.path.startsWith("memory/sessions/");
+
+        let startByte = 0;
+        let isIncremental = false;
+
+        if (isSessionFile) {
+            const previousState = this.sessionDeltas.get(entry.path);
+            if (previousState && entry.size > previousState.lastSize) {
+                startByte = previousState.lastSize;
+                isIncremental = true;
+            } else if (previousState && entry.size < previousState.lastSize) {
+                // File truncated, re-sync completely
+                this.sessionDeltas.delete(entry.path);
+            } else if (previousState && entry.size === previousState.lastSize) {
+                return; // Unchanged strictly by size
+            }
+        }
+
         const existing = this.db.prepare("SELECT hash FROM files WHERE path = ?").get(entry.path) as { hash: string } | undefined;
 
-        if (existing && existing.hash === entry.hash) return; // Unchanged
+        if (!isIncremental && existing && existing.hash === entry.hash) return; // Unchanged
 
         // Update file record
         this.db.prepare("INSERT OR REPLACE INTO files (path, hash, mtime, size) VALUES (?, ?, ?, ?)").run(
             entry.path, entry.hash, entry.mtimeMs, entry.size
         );
 
-        // Delete old chunks
-        this.db.prepare("DELETE FROM chunks WHERE path = ?").run(entry.path);
-        if (this.ftsEnabled && this.ftsAvailable) {
-            this.db.prepare(`DELETE FROM ${FTS_TABLE} WHERE path = ?`).run(entry.path);
+        const fileHandle = await fs.open(absPath, 'r');
+        let contentToProcess = "";
+
+        try {
+            if (isIncremental) {
+                const buffer = Buffer.alloc(entry.size - startByte);
+                await fileHandle.read(buffer, 0, buffer.length, startByte);
+                contentToProcess = buffer.toString("utf-8");
+            } else {
+                contentToProcess = await fileHandle.readFile("utf-8");
+            }
+        } finally {
+            await fileHandle.close();
         }
 
-        // Read content and chunk
-        const content = await fs.readFile(absPath, "utf-8");
-        const chunks = chunkMarkdown(content, { tokens: MAX_CHUNK_TOKENS, overlap: CHUNK_OVERLAP });
+        if (isSessionFile) {
+            this.sessionDeltas.set(entry.path, { lastSize: entry.size });
+        }
+
+        if (!isIncremental) {
+            // Delete old chunks entirely if full sync
+            this.db.prepare("DELETE FROM chunks WHERE path = ?").run(entry.path);
+            if (this.ftsEnabled && this.ftsAvailable) {
+                this.db.prepare(`DELETE FROM ${FTS_TABLE} WHERE path = ?`).run(entry.path);
+            }
+        }
+
+        // Chunking the content. If incremental, we pretend the start line is at the end of the existing file to avoid chunk overlap weirdness.
+        // For simplicity, we just chunk the delta string as if it's the whole file. 
+        // This is acceptable since session files are heavily append-only text logs.
+        const chunks = chunkMarkdown(contentToProcess, { tokens: MAX_CHUNK_TOKENS, overlap: CHUNK_OVERLAP });
 
         // Embed chunks (with batch failure handling)
         const texts = chunks.map(c => c.text);
         let embeddings: number[][] = [];
-        
+
         if (this.provider && this.vectorEnabled) {
             try {
                 // Try batch embedding first
@@ -496,7 +539,7 @@ export class OpenClawMemory {
                 this.batchFailureCount++;
                 this.batchFailureLastError = error instanceof Error ? error.message : String(error);
                 console.error(`[Memory] Embedding failed (${this.batchFailureCount}/${this.BATCH_FAILURE_LIMIT}):`, error);
-                
+
                 // If we've hit the limit, continue without embeddings (FTS-only for this file)
                 if (this.batchFailureCount >= this.BATCH_FAILURE_LIMIT) {
                     console.warn('[Memory] Switching to FTS-only mode for this sync due to repeated embedding failures');
@@ -543,7 +586,7 @@ export class OpenClawMemory {
 
         // Auto-generate summaries for session files to improve recall precision
         if (entry.path.startsWith("memory/sessions/")) {
-            await this.writeSessionSummary(entry.path, content);
+            await this.writeSessionSummary(entry.path, contentToProcess);
         }
     }
 
@@ -680,8 +723,9 @@ export class OpenClawMemory {
         const merged = mergeHybridResults({
             vector: vectorResults.map(r => ({ ...r, vectorScore: r.score })),
             keyword: keywordResults,
-            vectorWeight: 0.7,
-            textWeight: 0.3
+            vectorWeight: this.options.query?.hybrid?.vectorWeight ?? 0.7,
+            textWeight: this.options.query?.hybrid?.textWeight ?? 0.3,
+            mmr: this.options.query?.hybrid?.mmr
         });
 
         // Apply temporal decay and source boosting
