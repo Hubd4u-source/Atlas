@@ -23,6 +23,7 @@ import { searchKeyword, searchVector, SearchRowResult } from "./manager-search.j
 import { ensureMemoryIndexSchema } from "./memory-schema.js";
 import { loadSqliteVecExtension } from "./sqlite-vec.js";
 import { MockEmbeddingProvider, EmbeddingProvider, createEmbeddingProvider } from "./embeddings.js";
+import { extractKeywords } from "./query-expansion.js";
 
 const MAX_CHUNK_TOKENS = 512;
 const CHUNK_OVERLAP = 64;
@@ -41,8 +42,27 @@ export interface OpenClawMemoryOptions {
         apiKey?: string;
         baseUrl?: string;
         model?: string;
+        fallbackToFts?: boolean;  // NEW: Allow FTS-only mode when embeddings fail
     };
     useHybrid?: boolean;
+    query?: {
+        minScore?: number;
+        maxResults?: number;
+        hybrid?: {
+            enabled: boolean;
+            vectorWeight: number;
+            textWeight: number;
+            candidateMultiplier: number;
+            mmr?: {  // NEW: MMR configuration for result diversification
+                enabled: boolean;
+                lambda: number;  // 0.0 = max diversity, 1.0 = max relevance
+            };
+            temporalDecay?: {  // NEW: Recency boosting
+                enabled: boolean;
+                halfLifeDays: number;  // Default: 30 days
+            };
+        };
+    };
 }
 
 export type MemorySearchResult = {
@@ -63,7 +83,8 @@ export interface MemoryContext {
 
 export class OpenClawMemory {
     private db: Database.Database;
-    private provider: EmbeddingProvider;
+    private provider: EmbeddingProvider | null;  // Can be null in FTS-only mode
+    private providerUnavailableReason?: string;  // Track why provider is unavailable
     private vectorReady: Promise<boolean> | null = null;
     private watcher: FSWatcher | null = null;
     private dirty = false;
@@ -76,6 +97,11 @@ export class OpenClawMemory {
     private ftsEnabled: boolean;
     private ftsAvailable: boolean = false;
     private vectorDims: number | null = null;
+    
+    // NEW: Batch failure tracking
+    private batchFailureCount = 0;
+    private readonly BATCH_FAILURE_LIMIT = 2;
+    private batchFailureLastError?: string;
 
     constructor(options: OpenClawMemoryOptions) {
         this.options = options;
@@ -89,14 +115,25 @@ export class OpenClawMemory {
         // Open Database
         this.db = new Database(options.dbPath);
 
-        // Initialize provider
+        // Initialize provider with FTS-only fallback support
         if (this.vectorEnabled) {
-            this.provider = createEmbeddingProvider({
-                provider: options.embeddings?.provider || 'mock',
-                apiKey: options.embeddings?.apiKey,
-                baseUrl: options.embeddings?.baseUrl,
-                model: options.embeddings?.model
-            });
+            try {
+                this.provider = createEmbeddingProvider({
+                    provider: options.embeddings?.provider || 'mock',
+                    apiKey: options.embeddings?.apiKey,
+                    baseUrl: options.embeddings?.baseUrl,
+                    model: options.embeddings?.model
+                });
+            } catch (error) {
+                const fallbackEnabled = options.embeddings?.fallbackToFts ?? true;
+                if (fallbackEnabled && this.ftsEnabled) {
+                    console.warn('[Memory] Embedding provider failed, falling back to FTS-only mode:', error);
+                    this.provider = null;
+                    this.providerUnavailableReason = error instanceof Error ? error.message : String(error);
+                } else {
+                    throw error;
+                }
+            }
         } else {
             this.provider = new MockEmbeddingProvider();
         }
@@ -412,6 +449,7 @@ export class OpenClawMemory {
 
     private async syncFile(absPath: string): Promise<void> {
         const entry = await buildFileEntry(absPath, this.options.workspaceDir);
+        if (!entry) return; // File was deleted
 
         const existing = this.db.prepare("SELECT hash FROM files WHERE path = ?").get(entry.path) as { hash: string } | undefined;
 
@@ -432,12 +470,39 @@ export class OpenClawMemory {
         const content = await fs.readFile(absPath, "utf-8");
         const chunks = chunkMarkdown(content, { tokens: MAX_CHUNK_TOKENS, overlap: CHUNK_OVERLAP });
 
-        // Embed chunks
+        // Embed chunks (with batch failure handling)
         const texts = chunks.map(c => c.text);
         let embeddings: number[][] = [];
-        if (this.vectorEnabled) {
-            embeddings = await this.provider.embedBatch(texts);
-            await this.ensureVectorReady(embeddings[0]?.length || 0);
+        
+        if (this.provider && this.vectorEnabled) {
+            try {
+                // Try batch embedding first
+                if (this.batchFailureCount < this.BATCH_FAILURE_LIMIT) {
+                    embeddings = await this.provider.embedBatch(texts);
+                    // Reset failure count on success
+                    this.batchFailureCount = 0;
+                    this.batchFailureLastError = undefined;
+                } else {
+                    // Fall back to single-item embedding after repeated batch failures
+                    console.warn(`[Memory] Batch embedding disabled after ${this.BATCH_FAILURE_LIMIT} failures, using single-item mode`);
+                    embeddings = [];
+                    for (const text of texts) {
+                        const embedding = await this.provider.embedQuery(text);
+                        embeddings.push(embedding);
+                    }
+                }
+                await this.ensureVectorReady(embeddings[0]?.length || 0);
+            } catch (error) {
+                this.batchFailureCount++;
+                this.batchFailureLastError = error instanceof Error ? error.message : String(error);
+                console.error(`[Memory] Embedding failed (${this.batchFailureCount}/${this.BATCH_FAILURE_LIMIT}):`, error);
+                
+                // If we've hit the limit, continue without embeddings (FTS-only for this file)
+                if (this.batchFailureCount >= this.BATCH_FAILURE_LIMIT) {
+                    console.warn('[Memory] Switching to FTS-only mode for this sync due to repeated embedding failures');
+                }
+                embeddings = [];
+            }
         }
 
         const insertChunk = this.db.prepare(
@@ -448,11 +513,12 @@ export class OpenClawMemory {
             ? this.db.prepare(`INSERT INTO ${FTS_TABLE} (id, path, text, start_line, end_line, model) VALUES (?, ?, ?, ?, ?, ?)`)
             : null;
 
-        const insertVec = this.vectorEnabled && this.vectorAvailable
+        const insertVec = this.provider && this.vectorEnabled && this.vectorAvailable
             ? this.db.prepare(`INSERT INTO ${VECTOR_TABLE} (id, embedding) VALUES (?, ?)`)
             : null;
 
         const now = Date.now();
+        const providerModel = this.provider?.model || 'none';
 
         this.db.transaction(() => {
             for (let i = 0; i < chunks.length; i++) {
@@ -461,11 +527,11 @@ export class OpenClawMemory {
                 const id = `${entry.path}:${i}:${chunk.hash.substring(0, 8)}`; // Unique ID
 
                 insertChunk.run(
-                    id, entry.path, chunk.startLine, chunk.endLine, chunk.hash, this.provider.model, chunk.text, JSON.stringify(embedding), now
+                    id, entry.path, chunk.startLine, chunk.endLine, chunk.hash, providerModel, chunk.text, JSON.stringify(embedding), now
                 );
 
                 if (insertFts) {
-                    insertFts.run(id, entry.path, chunk.text, chunk.startLine, chunk.endLine, this.provider.model);
+                    insertFts.run(id, entry.path, chunk.text, chunk.startLine, chunk.endLine, providerModel);
                 }
 
                 if (insertVec && embedding.length > 0) {
@@ -518,10 +584,69 @@ export class OpenClawMemory {
         maxResults = 10,
         options?: { channel?: string; chatId?: string; boostSources?: string[] }
     ): Promise<MemorySearchResult[]> {
-        const queryVec = await this.provider.embedQuery(query);
-        const isVectorReady = await this.ensureVectorReady(queryVec.length);
+        const cleaned = query.trim();
+        if (!cleaned) {
+            return [];
+        }
 
         const candidates = Math.max(20, maxResults * 2);
+        const now = Date.now();
+
+        // FTS-ONLY MODE: No embedding provider available
+        if (!this.provider) {
+            if (!this.ftsEnabled || !this.ftsAvailable) {
+                console.warn('[Memory] No provider and FTS unavailable - search disabled');
+                return [];
+            }
+
+            console.log('[Memory] Using FTS-only mode (no embedding provider)');
+
+            // Extract keywords for better FTS matching on conversational queries
+            // e.g., "that thing we discussed about the API" → ["API", "thing"]
+            const keywords = extractKeywords(cleaned);
+            const searchTerms = keywords.length > 0 ? keywords : [cleaned];
+
+            console.log(`[Memory] Extracted keywords: ${keywords.join(', ') || '(none)'}`);
+
+            // Search with each keyword and merge results
+            const resultSets = await Promise.all(
+                searchTerms.map((term) =>
+                    searchKeyword({
+                        db: this.db,
+                        ftsTable: FTS_TABLE,
+                        providerModel: 'fts-only',  // Special marker for FTS-only mode
+                        query: term,
+                        limit: candidates,
+                        snippetMaxChars: SNIPPET_MAX_CHARS,
+                        sourceFilter: { sql: "", params: [] },
+                        buildFtsQuery: buildFtsQuery,
+                        bm25RankToScore: bm25RankToScore
+                    }).catch(() => [])
+                )
+            );
+
+            // Merge and deduplicate results, keeping highest score for each chunk
+            const seenIds = new Map<string, any>();
+            for (const results of resultSets) {
+                for (const result of results) {
+                    const existing = seenIds.get(result.id);
+                    if (!existing || result.score > existing.score) {
+                        seenIds.set(result.id, result);
+                    }
+                }
+            }
+
+            const merged = [...seenIds.values()]
+                .map(r => this.applyBoosts(r, now, options))
+                .sort((a, b) => b.score - a.score)
+                .slice(0, maxResults);
+
+            return merged;
+        }
+
+        // HYBRID MODE: Vector + FTS search
+        const queryVec = await this.provider.embedQuery(query);
+        const isVectorReady = await this.ensureVectorReady(queryVec.length);
 
         const vectorResults = isVectorReady
             ? await searchVector({
@@ -551,7 +676,7 @@ export class OpenClawMemory {
             })
             : [];
 
-        // Merge
+        // Merge hybrid results
         const merged = mergeHybridResults({
             vector: vectorResults.map(r => ({ ...r, vectorScore: r.score })),
             keyword: keywordResults,
@@ -559,43 +684,53 @@ export class OpenClawMemory {
             textWeight: 0.3
         });
 
-        const now = Date.now();
+        // Apply temporal decay and source boosting
+        const boosted = merged
+            .map(r => this.applyBoosts(r, now, options))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, maxResults);
+
+        return boosted;
+    }
+
+    /**
+     * Apply temporal decay and source-specific boosting to search results
+     */
+    private applyBoosts(
+        result: any,
+        now: number,
+        options?: { channel?: string; chatId?: string; boostSources?: string[] }
+    ): MemorySearchResult {
+        let score = result.score;
         const channel = options?.channel;
         const chatId = options?.chatId;
         const boostSources = options?.boostSources || [];
 
-        const applyBoosts = (result: any) => {
-            let score = result.score;
+        // Temporal decay: Recent memories get up to +20% boost
+        if (result.mtimeMs) {
+            const ageDays = Math.max(0, (now - result.mtimeMs) / (1000 * 60 * 60 * 24));
+            const recencyBoost = Math.max(0, (30 - ageDays) / 30) * 0.2;
+            score = score * (1 + recencyBoost);
+        }
 
-            if (result.mtimeMs) {
-                const ageDays = Math.max(0, (now - result.mtimeMs) / (1000 * 60 * 60 * 24));
-                const recencyBoost = Math.max(0, (30 - ageDays) / 30) * 0.2; // up to +0.2
-                score = score * (1 + recencyBoost);
+        // Current session boost: +20%
+        if (channel && chatId) {
+            const sessionPath = `memory/sessions/${channel}-${chatId}.md`;
+            if (result.path === sessionPath) {
+                score *= 1.2;
             }
+        }
 
-            if (channel && chatId) {
-                const sessionPath = `memory/sessions/${channel}-${chatId}.md`;
-                if (result.path === sessionPath) {
-                    score *= 1.2;
-                }
-            }
+        // Source-specific boost: +15%
+        if (boostSources.some((prefix) => result.path.startsWith(prefix))) {
+            score *= 1.15;
+        }
 
-            if (boostSources.some((prefix) => result.path.startsWith(prefix))) {
-                score *= 1.15;
-            }
-
-            return score;
+        return {
+            ...result,
+            score,
+            source: result.source ?? 'memory'
         };
-
-        const boosted = merged.map(r => ({
-            ...r,
-            score: applyBoosts(r),
-            source: r.source ?? 'memory'
-        }));
-
-        return boosted
-            .sort((a, b) => b.score - a.score)
-            .slice(0, maxResults);
     }
 
     async close() {
