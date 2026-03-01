@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import * as os from 'os';
 import {
     Gateway,
-    CronManager,
+    CronService,
     WebhookManager,
     type AppConfig,
     type IncomingMessage,
@@ -327,23 +327,23 @@ async function main() {
 
     // Initialize Skills Framework
     const skillManager = new SkillManager();
-    const cronManager = new CronManager();
+    const cronService = new CronService({ storePath: path.join(DATA_DIR, 'cron.json') });
+    await cronService.start();
     const mcpManager = new McpManager({
         enabled: config.mcp?.enabled !== false,
         configPath: config.mcp?.configPath
     });
     const cronEventLog: Array<{ id: string; name: string; timestamp: string }> = [];
 
-    cronManager.on('taskCompleted', (id: string) => {
-        const status = cronManager.getTasksStatus().find(t => t.id === id);
-        const name = status?.name || id;
-        cronEventLog.unshift({ id, name, timestamp: new Date().toISOString() });
+    cronService.on('run', (job: any) => {
+        const name = job?.name || job?.id || 'run';
+        cronEventLog.unshift({ id: job?.id || 'run', name, timestamp: new Date().toISOString() });
         if (cronEventLog.length > 50) {
             cronEventLog.pop();
         }
     });
 
-    cronManager.on('error', (payload: any) => {
+    cronService.on('error', (payload: any) => {
         const name = payload?.id ? `Error: ${payload.id}` : 'Error';
         cronEventLog.unshift({ id: payload?.id || 'error', name, timestamp: new Date().toISOString() });
         if (cronEventLog.length > 50) {
@@ -427,13 +427,20 @@ async function main() {
                 }
             });
         },
-        cronManager,
-        scheduleTask: (task: { title: string; description?: string; cron: string; priority?: string; maxRetries?: number; channel: string; chatId: string; userId?: string }) => {
+        cronService,
+        scheduleTask: async (task: { title: string; description?: string; cron: string; priority?: string; maxRetries?: number; channel: string; chatId: string; userId?: string }) => {
             const key = `task:${task.channel}:${task.chatId}:${task.title}:${task.cron}`;
-            cronManager.schedule(
-                key,
-                task.cron,
-                async () => {
+            await cronService.add({
+                id: key,
+                name: `Scheduled Task: ${task.title}`,
+                enabled: true,
+                schedule: { kind: 'cron', expr: task.cron },
+                sessionTarget: 'main',
+                wakeMode: 'now',
+                payload: { kind: 'systemEvent', text: 'spawn-task' }
+            });
+            cronService.on('run', (job: any) => {
+                if (job.id === key) {
                     if (!taskManagerRef) return;
                     taskManagerRef.enqueueTasks([{
                         title: task.title,
@@ -444,9 +451,8 @@ async function main() {
                         userId: task.userId,
                         maxRetries: task.maxRetries
                     }]);
-                },
-                `Scheduled Task: ${task.title}`
-            );
+                }
+            });
         },
         enqueueTask: (task: { title: string; description?: string; priority?: string; maxRetries?: number; channel: string; chatId: string; userId?: string }) => {
             if (!taskManagerRef) return;
@@ -482,34 +488,53 @@ async function main() {
     // Register Skill Schedules
     const skillSchedules = skillManager.getAllSchedules();
     for (const schedule of skillSchedules) {
-        cronManager.schedule(
-            `skill:${schedule.skillId}:${schedule.cron}`,
-            schedule.cron,
-            () => schedule.handler(skillContext),
-            `Skill: ${schedule.skillId}`
-        );
+        const jobId = `skill:${schedule.skillId}:${schedule.cron}`;
+        await cronService.add({
+            id: jobId,
+            name: `Skill: ${schedule.skillId}`,
+            enabled: true,
+            schedule: { kind: 'cron', expr: schedule.cron },
+            sessionTarget: 'main',
+            wakeMode: 'now',
+            payload: { kind: 'systemEvent', text: 'tick' }
+        });
+        cronService.on('run', (job: any) => {
+            if (job.id === jobId) schedule.handler(skillContext);
+        });
     }
 
     // Register Heartbeat Task (Every 30 minutes check-in)
-    cronManager.schedule(
-        'system:heartbeat',
-        '*/30 * * * *',
-        async () => {
+    await cronService.add({
+        id: 'system:heartbeat',
+        name: 'System Heartbeat',
+        enabled: true,
+        schedule: { kind: 'cron', expr: '*/30 * * * *' },
+        sessionTarget: 'main',
+        wakeMode: 'now',
+        payload: { kind: 'systemEvent', text: 'heartbeat' }
+    });
+    cronService.on('run', (job: any) => {
+        if (job.id === 'system:heartbeat') {
             console.log('💓 Heartbeat: Checking for proactive updates...');
-        },
-        'System Heartbeat'
-    );
+        }
+    });
+
     // Daily Summary (12:20 Asia/Kolkata)
-    cronManager.schedule(
-        'system:daily-summary',
-        '20 12 * * *',
-        async () => {
+    await cronService.add({
+        id: 'system:daily-summary',
+        name: 'Daily Summary',
+        enabled: true,
+        schedule: { kind: 'cron', expr: '20 12 * * *', tz: 'Asia/Kolkata' },
+        sessionTarget: 'main',
+        wakeMode: 'now',
+        payload: { kind: 'systemEvent', text: 'summary' }
+    });
+    cronService.on('run', async (job: any) => {
+        if (job.id === 'system:daily-summary') {
             console.log('📝 Daily Summary: sending recap...');
             await sendDailySummaries();
-        },
-        'Daily Summary',
-        'Asia/Kolkata'
-    );
+        }
+    });
     console.log('✓ Cron Scheduler initialized');
 
     // Check for incomplete TODOs from previous sessions
@@ -1264,12 +1289,13 @@ async function main() {
         if (message.type === 'command' && message.command === 'cron_status') {
             const channel = typeof message.channel === 'string' ? message.channel : 'web';
             const chatId = typeof message.chatId === 'string' ? message.chatId : 'default';
-            const tasks = cronManager.getTasksStatus().map(t => ({
+            const jobs = await cronService.list();
+            const tasks = jobs.map(t => ({
                 id: t.id,
                 name: t.name || t.id,
-                pattern: t.pattern,
-                nextRun: t.nextRun ? new Date(t.nextRun).toISOString() : null,
-                lastRun: t.lastRun ? new Date(t.lastRun).toISOString() : null
+                pattern: t.schedule.kind === 'cron' ? t.schedule.expr : t.schedule.kind,
+                nextRun: t.state.nextRunAtMs ? new Date(t.state.nextRunAtMs).toISOString() : null,
+                lastRun: t.state.lastRunAtMs ? new Date(t.state.lastRunAtMs).toISOString() : null
             }));
 
             await gateway.sendRawToChannel(channel as ChannelType, {
@@ -1353,10 +1379,10 @@ async function main() {
             // SLASH COMMAND HANDLING (OpenClaw-style)
             // ============================================
             const { isSlashCommand, executeSlashCommand } = await import('@atlas/memory');
-            
+
             if (isSlashCommand(userText)) {
                 console.log(`⚡ Executing slash command: ${userText}`);
-                
+
                 const result = await executeSlashCommand(userText, {
                     memory,
                     session
@@ -1364,11 +1390,11 @@ async function main() {
 
                 if (result) {
                     await respond({ text: result.message });
-                    
+
                     // Log the command execution
-                    await updateProjectContext(message.channel, message.chatId, 
+                    await updateProjectContext(message.channel, message.chatId,
                         `[Command: ${userText}] ${result.success ? 'Success' : 'Failed'}`);
-                    
+
                     return; // Don't process as regular message
                 }
             }
@@ -2099,9 +2125,9 @@ async function main() {
 
     // ── Cron API ─────────────────────────────────────────────────────
     gateway.registerApiRoute('GET', '/api/cron/jobs', async (_req, res) => {
-        const jobs = cronManager.getTasksStatus();
+        const jobs = await cronService.list();
         res.writeHead(200);
-        res.end(JSON.stringify({ jobs, total: jobs.length, active: cronManager.activeCount }));
+        res.end(JSON.stringify({ jobs, total: jobs.length }));
     });
 
     gateway.registerApiRoute('POST', '/api/cron/jobs', async (_req, res, { body }) => {
@@ -2111,67 +2137,71 @@ async function main() {
             res.end(JSON.stringify({ error: 'id and pattern are required' }));
             return;
         }
-        if (data.oneShot || data.runAt) {
-            cronManager.scheduleOnce(
-                data.id,
-                data.runAt || data.pattern,
-                async () => { console.log(`[Cron API] One-shot ${data.id} fired`); },
-                data.name,
-                { webhookUrl: data.webhookUrl }
-            );
-        } else {
-            cronManager.schedule(
-                data.id,
-                data.pattern,
-                async () => { console.log(`[Cron API] Job ${data.id} fired`); },
-                data.name,
-                data.timezone,
-                { webhookUrl: data.webhookUrl, enabled: data.enabled !== false }
-            );
-        }
+        await cronService.add({
+            id: data.id,
+            name: data.name || data.id,
+            enabled: data.enabled !== false,
+            schedule: data.runAt ? { kind: 'at', at: data.runAt } : { kind: 'cron', expr: data.pattern, tz: data.timezone },
+            sessionTarget: 'main',
+            wakeMode: 'now',
+            deleteAfterRun: !!(data.oneShot || data.runAt),
+            payload: { kind: 'systemEvent', text: 'webhook-trigger' },
+            delivery: data.webhookUrl ? { mode: 'webhook', to: data.webhookUrl } : undefined
+        });
         res.writeHead(201);
         res.end(JSON.stringify({ ok: true, id: data.id }));
     });
 
     gateway.registerApiRoute('DELETE', '/api/cron/jobs/:id', async (_req, res, { query }) => {
         const id = query.id;
-        if (!cronManager.has(id)) {
+        try {
+            await cronService.remove(id);
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, deleted: id }));
+        } catch (e) {
             res.writeHead(404);
             res.end(JSON.stringify({ error: `Job '${id}' not found` }));
-            return;
         }
-        cronManager.stop(id);
-        res.writeHead(200);
-        res.end(JSON.stringify({ ok: true, deleted: id }));
     });
 
     gateway.registerApiRoute('POST', '/api/cron/jobs/:id/run', async (_req, res, { query }) => {
-        const ok = await cronManager.triggerNow(query.id);
-        if (!ok) {
+        const jobs = await cronService.list();
+        const job = jobs.find(j => j.id === query.id);
+        if (!job) {
             res.writeHead(404);
-            res.end(JSON.stringify({ error: `Job '${query.id}' not found` }));
+            res.end(JSON.stringify({ error: `Job '${query.id}' not found or disabled` }));
             return;
         }
+        cronService.emit('run', job);
         res.writeHead(200);
         res.end(JSON.stringify({ ok: true, triggered: query.id }));
     });
 
     gateway.registerApiRoute('POST', '/api/cron/jobs/:id/pause', async (_req, res, { query }) => {
-        const ok = cronManager.pause(query.id);
-        res.writeHead(ok ? 200 : 404);
-        res.end(JSON.stringify(ok ? { ok: true, paused: query.id } : { error: 'Not found' }));
+        try {
+            await cronService.update(query.id, { enabled: false });
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, paused: query.id }));
+        } catch {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Not found' }));
+        }
     });
 
     gateway.registerApiRoute('POST', '/api/cron/jobs/:id/resume', async (_req, res, { query }) => {
-        const ok = cronManager.resume(query.id);
-        res.writeHead(ok ? 200 : 404);
-        res.end(JSON.stringify(ok ? { ok: true, resumed: query.id } : { error: 'Not found' }));
+        try {
+            await cronService.update(query.id, { enabled: true });
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, resumed: query.id }));
+        } catch {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Not found' }));
+        }
     });
 
     gateway.registerApiRoute('GET', '/api/cron/jobs/:id/history', async (_req, res, { query }) => {
-        const history = cronManager.getRunHistory(query.id);
         res.writeHead(200);
-        res.end(JSON.stringify({ jobId: query.id, history, total: history.length }));
+        res.end(JSON.stringify({ jobId: query.id, history: [], total: 0 }));
     });
 
     // ── Webhook API ──────────────────────────────────────────────────
@@ -2321,7 +2351,7 @@ async function main() {
     const shutdown = async () => {
         console.log('\n\n🛑 Shutting down...');
         clearInterval(taskInterval);
-        cronManager.stopAll();
+        cronService.stop();
         for (const { channel } of channels) {
             await channel.stop();
         }
